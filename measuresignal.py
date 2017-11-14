@@ -42,15 +42,19 @@ def parseconfigs(config_file):
 
     params = {}
 
-    #files
-    params['source_file'] = config.get('I/O','source_file')
+    #Input & Output Files
+    params['zp_file'] = config.get('I/O','zp_file')
+    params['data_file'] = config.get('I/O','data_file')
+    params['balrog_zp_file'] = config.get('I/O','balrog_zp_file')
+    params['balrog_data_file'] = config.get('I/O','balrog_data_file')
     params['output'] = config.get('I/O','output')
 
-    #data
-    params['source_ra']   = config.get('Columns', 'source_ra')
+    #Table Column Names
+    params['zp_id_col'] = config.get('Columns','zp_id_col')
+    params['data_id_col'] = config.get('Columns','data_id_col')
 
-    #randoms
-    params['source_rand_ra']     = config.get('Columns', 'source_random_ra')
+    #Assignment Criteria
+    params['redshift_index'] = config.get('Assignments','redshift_index')
 
     return params
 
