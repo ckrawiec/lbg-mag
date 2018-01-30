@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import json
 import ConfigParser
+import findpairs
+from astropy.io import fits
 from myutils import joincorrecttype
 from matplotlib.pyplot import cm
 
@@ -37,6 +39,7 @@ class DataSet():
             self.types[i] = data
 
             if check:
+                #check colors for each type
                 plt.plot(data['MAG_AUTO_I_d04']-data['MAG_AUTO_Z_d04'],
                          data['MAG_AUTO_R_d04']-data['MAG_AUTO_I_d04'],
                          '^', markeredgecolor='none', c=c, markersize=4.,
@@ -70,6 +73,7 @@ def parseconfigs(config_file):
     #Input & Output Files
     params['zp_file'] = config.get('I/O','zp_file')
     params['data_file'] = config.get('I/O','data_file')
+    params['lens_file'] = config.get('I/O','lens_file')
     params['balrog_zp_file'] = config.get('I/O','balrog_zp_file')
     params['balrog_data_file'] = config.get('I/O','balrog_data_file')
     params['output'] = config.get('I/O','output')
@@ -90,37 +94,45 @@ def main():
     params = parseconfigs('measuresignal.config')
 
     objects = DataSet(params['zp_file'], params['data_file'], params['zp_id_col'], params['output'])
-
-    #need probabilities
-
+    lenses = fits.open(params['lens_file'])[1].data
+    
     #assign types to objects from zprob_file based on their probabilities
     objects.assignTypes(params['redshift_index'], params['below'], params['above'], check=True)
 
+    #test_zprob_file must have same redshift ranges
+    testP = Table.read(params['test_zprob_file'])
+    testk = Table.read(params['test_k_file'])
+
+    #measured number densities
+    n_vec = []
+    P_mat = []
+    k_mat = []
+    for objtype in objects.types:
+        #for each type - calculate correlation with lenses
+        these_params = {}
+
+        #write type objects to table
+        this_table = 
+        these_params['source_file'] = this_table
+        these_params['lens_file'] = params['lens_file']                                                                       these_params['random_source_file'] = '' 
+        these_params['random_lens_file'] = params['random_lens_file']
+        these_params['source_ra'] = ''
+        these_params['source_dec'] = ''
+        these_params['output'] = params['output']+'_type'+objtype.id
+        
+        #call treecorr with proper config
+        nn = findpairs.treecorr(these_params)
+        n_vec.append(nn[''])
+        
+        #get probabilities of true/false assignment
+        P_mat.append([]}
+        k_mat.append([])
+        for true_objtype in objects.types:
+            P_mat[-1].append(testP['P{}P{}'.format(objtype, true_objtype)])
+            k_mat[-1].append(testk['k{}{}'.format(objtype, true_objtype)])
 
 
 if __name__=="__main__":
     main()
 
-    
-"""
-    #get P(G|H) probabilities of type G when assigned type H from test field (d04/d10/dfull)
-    test_zprob_file
 
-    #get alphas from brog/dfull/mag - function of type G
-    alpha_file
-
-    #number of pairs as function of radii for each type H
-    for each_type_H:
-        findpairs(type_H, lenses, radii)
-
-    mu = 
-"""
-#slope of lum func from sure ones?
-#weighted lum func from assigned ones?
-
-#choose assignment
-#check original Ps
-
-#need sources
-#need measured number densities
-#need number density from balrog

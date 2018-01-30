@@ -75,6 +75,109 @@ def countpairs(src, lns, rnd, n_chunk = 100):
 
     return pair_dict, rpair_dict
 
+def mycorr(params):
+        #read files
+        start_d = time.time()
+        sources   = DataSet(params['source_file'], params['source_ra'], params['source_dec'])
+        lenses    = DataSet(params['lens_file'], params['lens_ra'], params['lens_dec'])
+        rsources  = DataSet(params['source_random_file'], params['source_rand_ra'], params['source_rand_dec'])
+        
+        end_d = time.time()
+    
+        sys.stderr.write('Data initialized in {}s\n'.format(end_d-start_d))
+        
+        sys.stderr.write('Sources: {}\nLenses: {}\n'.format(len(sources.data), len(lenses.data)))
+
+        #make trees
+        start_tree = time.time()
+        sources.initTree()
+        rsources.initTree()
+        end_tree = time.time()
+        
+        sys.stderr.write('Trees created in {}s\n'.format(end_tree-start_tree))
+        
+        start_q = time.time()
+        
+        sys.stderr.write('Starting queries...\n')
+        
+        #for each radius, query for all sources around lenses
+        DD, DR = countpairs(sources, lenses, rsources)
+        
+        end_q = time.time()
+        
+        sys.stderr.write('Time for queries: {}s\n'.format(end_q-start_q))
+        
+        for k in DD.keys():
+            print 'r={}: {} source-lens pairs'.format(k, DD[k])
+            print '      {} random source-lens pairs'.format(DR[k])
+            
+        #plot pair counts
+        plt.scatter(DD.keys(), DD.values(), c='b', edgecolor='none', label='sources') 
+        plt.scatter(DR.keys(), DR.values(), c='r', edgecolor='none', label='random sources')
+    
+        plt.xscale('log')
+        plt.yscale('log')
+    
+        #Poisson errorbars
+        plt.errorbar(DD.keys(), DD.values(), yerr=np.sqrt(DD.values()), fmt='o')
+        plt.errorbar(DR.keys(), DR.values(), yerr=np.sqrt(DR.values()), c='r', fmt='o')
+        
+        output = params['output']+'_pairs.png'
+        plt.xlabel('r (deg)')
+        plt.ylabel('pairs')
+        plt.grid(which='both')
+        plt.legend(loc='best')
+        plt.savefig(output)
+        sys.stderr.write('Figure saved to {}\n'.format(output))
+        plt.close()
+    
+        #plot cross-correlations
+        ratio = float(len(rsources.data)) / len(sources.data)
+
+        w = [np.array(DD[k])/np.array(DR[k]) * ratio - 1 for k in DD.keys()]
+    
+        plt.scatter(DD.keys(), w,
+                    c='b', edgecolor='none')
+        plt.xscale('log')
+        
+        #Poisson errorbars
+        plt.errorbar(DD.keys(), w, yerr=1./np.sqrt(DD.values()), fmt='o')
+        
+        plt.xlabel('r (deg)')
+        plt.ylabel('w')
+        
+        output = params['output']+'_correlations.png'
+        plt.grid(which='both')
+        plt.savefig(output)
+        sys.stderr.write('Figure saved to {}\n'.format(output))
+        plt.close()
+    
+        tab = Table()
+        tab['R'] = DD.keys()
+        tab['w'] = w
+        tab['DD'] = DD.values()
+        tab['DR'] = [DR[k] for k in DD.keys()]
+        tab.write(params['output']+'.fits')
+
+def treecorr(params, units='degrees'):
+    #without command line?
+    #command = corr2 config
+    #source/lens ra/dec column names must match
+    command = "corr2 file_name={} file_name2={} rand_file_name={} \
+               rand_file_name2={} file_type=FITS ra_col={} dec_col={} \
+               ra_units={} dec_units={} min_sep=0.006 max_sep=0. nbins=5 \
+               sep_units={} nn_file_name={} verbose=3 log_file={}".format(params['source_file'],
+                                                                          params['lens_file'],
+                                                                          params['random_source_file'],
+                                                                          params['random_lens_file'],
+                                                                          params['source_ra'], params['source_dec'],
+                                                                          units, units, units,
+                                                                          params['output']+'_treecorrNN.fits',
+                                                                          params['output']+'_treecorrNN.log')
+    ### run command
+    results = Table.read(params['output']+'_treecorrNN.fits')
+    return results
+
 class DataSet:
     def __init__(self, data_file, x_col, y_col, weight_file=None):
         self.data = fits.open(data_file)[1].data
@@ -104,90 +207,12 @@ def main():
 
     ###Use real distances
     ###might make slower, can map/change coordinates
-    
-    #read files
-    start_d = time.time()
-    sources   = DataSet(params['source_file'], params['source_ra'], params['source_dec'])
-    lenses    = DataSet(params['lens_file'], params['lens_ra'], params['lens_dec'])
-    rsources  = DataSet(params['source_random_file'], params['source_rand_ra'], params['source_rand_dec'])
-    
-    end_d = time.time()
 
-    sys.stderr.write('Data initialized in {}s\n'.format(end_d-start_d))
+    mycorr(params)
+
+    treecorr(params)
     
-    sys.stderr.write('Sources: {}\nLenses: {}\n'.format(len(sources.data), len(lenses.data)))
-            
-    #make trees
-    start_tree = time.time()
-    sources.initTree()
-    rsources.initTree()
-    end_tree = time.time()
-    
-    sys.stderr.write('Trees created in {}s\n'.format(end_tree-start_tree))
-    
-    start_q = time.time()
-    
-    sys.stderr.write('Starting queries...\n')
-    
-    #for each radius, query for all sources around lenses
-    DD, DR = countpairs(sources, lenses, rsources)
         
-    end_q = time.time()
-    
-    sys.stderr.write('Time for queries: {}s\n'.format(end_q-start_q))
-    
-    for k in DD.keys():
-        print 'r={}: {} source-lens pairs'.format(k, DD[k])
-        print '      {} random source-lens pairs'.format(DR[k])
-        
-    #plot pair counts
-    plt.scatter(DD.keys(), DD.values(), c='b', edgecolor='none', label='sources') 
-    plt.scatter(DR.keys(), DR.values(), c='r', edgecolor='none', label='random sources')
-
-    plt.xscale('log')
-    plt.yscale('log')
-
-    #Poisson errorbars
-    plt.errorbar(DD.keys(), DD.values(), yerr=np.sqrt(DD.values()), fmt='o')
-    plt.errorbar(DR.keys(), DR.values(), yerr=np.sqrt(DR.values()), c='r', fmt='o')
-    
-    output = params['output']+'_pairs.png'
-    plt.xlabel('r (deg)')
-    plt.ylabel('pairs')
-    plt.grid(which='both')
-    plt.legend(loc='best')
-    plt.savefig(output)
-    sys.stderr.write('Figure saved to {}\n'.format(output))
-    plt.close()
-
-    #plot cross-correlations
-    ratio = float(len(rsources.data)) / len(sources.data)
-
-    w = [np.array(DD[k])/np.array(DR[k]) * ratio - 1 for k in DD.keys()]
-
-    plt.scatter(DD.keys(), w,
-                c='b', edgecolor='none')
-    plt.xscale('log')
-    
-    #Poisson errorbars
-    plt.errorbar(DD.keys(), w, yerr=1./np.sqrt(DD.values()), fmt='o')
-    
-    plt.xlabel('r (deg)')
-    plt.ylabel('w')
-    
-    output = params['output']+'_correlations.png'
-    plt.grid(which='both')
-    plt.savefig(output)
-    sys.stderr.write('Figure saved to {}\n'.format(output))
-    plt.close()
-
-    tab = Table()
-    tab['R'] = DD.keys()
-    tab['w'] = w
-    tab['DD'] = DD.values()
-    tab['DR'] = [DR[k] for k in DD.keys()]
-    tab.write(output+'.fits')
-    
 
 if __name__=="__main__":
     main()
