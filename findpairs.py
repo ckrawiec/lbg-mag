@@ -4,6 +4,7 @@ import time
 import sys
 import matplotlib.pyplot as plt
 import ConfigParser
+import subprocess
 from scipy.spatial import ckdtree
 from astropy.io import fits
 from astropy.table import Table
@@ -163,18 +164,37 @@ def treecorr(params, units='degrees'):
     #without command line?
     #command = corr2 config
     #source/lens ra/dec column names must match
-    command = "corr2 file_name={} file_name2={} rand_file_name={} \
-               rand_file_name2={} file_type=FITS ra_col={} dec_col={} \
-               ra_units={} dec_units={} min_sep=0.006 max_sep=0. nbins=5 \
-               sep_units={} nn_file_name={} verbose=3 log_file={}".format(params['source_file'],
-                                                                          params['lens_file'],
-                                                                          params['random_source_file'],
-                                                                          params['random_lens_file'],
-                                                                          params['source_ra'], params['source_dec'],
-                                                                          units, units, units,
-                                                                          params['output']+'_treecorrNN.fits',
-                                                                          params['output']+'_treecorrNN.log')
-    ### run command
+    config_file = params['output']+"_treecorr.params"
+    f = open(config_file, 'w')
+    f.write("""file_name = {}
+file_name2 = {}
+rand_file_name = {}
+rand_file_name2 = {}
+file_type = FITS
+ra_col = {}
+dec_col = {}
+ra_units = {}
+dec_units = {}
+min_sep = 0.006
+max_sep = 0.08
+nbins = 5
+sep_units = {}
+nn_file_name = {}
+verbose = 3
+log_file = {}""".format(params['source_file'],
+                      params['lens_file'],
+                      params['random_source_file'],
+                      params['random_lens_file'],
+                      params['source_ra'], params['source_dec'],
+                      units, units, units,
+                      params['output']+'_treecorrNN.fits',
+                      params['output']+'_treecorrNN.log'))
+    f.close()
+
+    #run command
+    command = "corr2 "+config_file
+    print command
+    subprocess.call(command.split(' '))
     results = Table.read(params['output']+'_treecorrNN.fits')
     return results
 
@@ -216,3 +236,4 @@ def main():
 
 if __name__=="__main__":
     main()
+    
