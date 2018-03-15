@@ -23,7 +23,7 @@ params['balrog_size_column'] = 'HALFLIGHTRADIUS_0'
 
 def createdeep(deep, mu, fluxcol='FLUX_AUTO_{}', sizecol='FLUX_RADIUS_I', fluxcut=40., filters='GRIZ', sizes=True, logs=True):
     #cut out low fluxes and unrealistic sizes
-    flux_mask = (deep[fluxcol.format('G')]>cut) & (deep[fluxcol.format('R')]>cut) & (deep[fluxcol.format('I')]>cut) & (deep[fluxcol.format('Z')]>cut)
+    flux_mask = (deep[fluxcol.format('G')]>fluxcut) & (deep[fluxcol.format('R')]>fluxcut) & (deep[fluxcol.format('I')]>fluxcut) & (deep[fluxcol.format('Z')]>fluxcut)
     size_mask = (deep[sizecol]>0.)
     
     #separate galaxies & stars using MODEST_CLASS
@@ -35,7 +35,7 @@ def createdeep(deep, mu, fluxcol='FLUX_AUTO_{}', sizecol='FLUX_RADIUS_I', fluxcu
         gal_vec = [np.log10(gals[fluxcol.format(f)]) for f in filters]
 
         #magnified flux vectors
-        new_gal_vec = df_vec + np.log10(mu)
+        new_gal_vec = gal_vec + np.log10(mu)
     else:
         gal_vec = [gals[fluxcol.format(f)] for f in filters]
         new_gal_vec = gal_vec * mu
@@ -91,7 +91,7 @@ def findmatches(br_data, deep_data, new_deep_data):
     #query tree for magnified fluxes
     sys.stderr.write('querying magnified...')
     new_d, new_id = br_tree.query(new_deep_data)
-    matched['magnified match radius'] = new_d
+    matches['magnified match radius'] = new_d
         
     #find balrog ids
     matches['index of match'] = orig_id
@@ -144,17 +144,20 @@ def main(args):
     
     #open deep data file and create unlensed & lensed data vectors
     deep = fits.open(params['deep_file'])[1].data
-    gal_data, new_gal_data = createdeep(deep, params['deep_flux_column'], params['deep_size_column'],
+    gal_data, new_gal_data = createdeep(deep, params['mu'], params['deep_flux_column'], params['deep_size_column'],
                                         params['flux_cut'], params['filters'])
 
+    sys.stderr.write('Using {} objects from deep data.\n'.format(len(gal_data)))
+    
     #indices of deep data
     ids = list(range(len(gal_data)))
 
     #cycle over all balrog tables
     balrog_matches = {}
     tabnums = []
-    for tab in glob.glob(params['balrog_files']):
-        tabnum = tab[41:43]
+    for tab in glob.glob(params['balrog_files'])[:2]:
+        itab = tab.find('tab')
+        tabnum = tab[itab+3:itab+5]
         tabnums.append(tabnum)
         sys.stderr.write('Working on balrog table {}...'.format(tabnum))
 
@@ -169,32 +172,40 @@ def main(args):
         these_matches['balrog index of magnified match'] = brog['BALROG_INDEX'][these_matches['index of magnified match']]
 
         balrog_matches[tabnum] = these_matches
+        sys.stderr.write('Done.\n')
 
     #find closest match for each object among all tables
-    key_arg = np.argmin(zip([balrog_matches[key]['match radius'] for key in balrog_matches.keys()]), axis=1)
-    new_key_arg = np.argmin(zip([balrog_matches[key]['magnified match radius'] for key in balrog_matches.keys()]), axis=1)
-    best_tabs = balrog_matches.keys()[key_arg]
-    best_new_tabs = balrog_matches.keys()[new_key_arg]
+    match_radii = zip(*[balrog_matches[key]['match radius'] for key in balrog_matches.keys()])
+    new_match_radii = zip(*[balrog_matches[key]['magnified match radius'] for key in balrog_matches.keys()])
+    key_arg = np.argmin(match_radii, axis=1)
+    new_key_arg = np.argmin(new_match_radii, axis=1)
+    best_tabs = np.array(balrog_matches.keys())[key_arg]
+    best_new_tabs = np.array(balrog_matches.keys())[new_key_arg]
 
     #save numbers of detections
     detections, new_detections = 0, 0
-    for itab in range(len(tabnums)):
+    for tabnum in tabnums:
         #open sim catalog
-        sim = fits.open(sim_file_format.format(tabnums[itab]))[1].data
+        sim = fits.open(params['sim_file_format'].format(tabnum))[1].data
 
         #focus on this table
-        this_set = np.where(best_tabs==itab)
-        this_new_set = np.where(best_new_tabs==itab)
+        this_set = np.where(best_tabs==tabnum)
+        this_new_set = np.where(best_new_tabs==tabnum)
         
         #count objects that are found (detected) in sim catalog
-        sys.stderr.write('Working on sim table {}...'.format(tabnums[itab]))
+        sys.stderr.write('Working on sim table {}...'.format(tabnum))
         sys.stderr.write('checking for detections...')
 
         #detected objects whose truth fluxes match deep set
-        detections += len(set(sim['BALROG_INDEX']).intersection(balrog_matches[itab]['balrog index of match'][this_set]))
+        truth_matches = balrog_matches[tabnum]['balrog index of match'][this_set]
+        print len(truth_matches)
+        detections += len(set(sim['BALROG_INDEX']).intersection(truth_matches))
         
         #detected objects whose truth fluxes match magnified deep set
-        new_detections += len(set(sim['BALROG_INDEX']).intersection(balrog_matches[itab]['balrog index of magnified match'][this_new_set]))
+        new_truth_matches = balrog_matches[tabnum]['balrog index of magnified match'][this_new_set]
+        new_detections += len(set(sim['BALROG_INDEX']).intersection(new_truth_matches))
+
+        sys.stderr.write('Done.\n')
         
     #report information
     print "Detected original matches: {}".format(detections)
