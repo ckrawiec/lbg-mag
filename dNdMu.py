@@ -21,7 +21,8 @@ params['balrog_flux_column'] = 'FLUX_NOISELESS_{}'
 params['balrog_size_column'] = 'HALFLIGHTRADIUS_0'
 
 
-def createdeep(deep, mu, fluxcol='FLUX_AUTO_{}', sizecol='FLUX_RADIUS_I', fluxcut=40., filters='GRIZ', sizes=True, logs=True):
+def createdeep(deep, mu, fluxcol='FLUX_AUTO_{}', sizecol='FLUX_RADIUS_I',
+               fluxcut=40., filters='GRIZ', sizes=True, logs=True):
     #cut out low fluxes and unrealistic sizes
     flux_mask = (deep[fluxcol.format('G')]>fluxcut) & (deep[fluxcol.format('R')]>fluxcut) & (deep[fluxcol.format('I')]>fluxcut) & (deep[fluxcol.format('Z')]>fluxcut)
     size_mask = (deep[sizecol]>0.)
@@ -133,6 +134,7 @@ def gethlr(gals, stars, sizecol='FLUX_RADIUS_I'):
     return gal_hlr
 
 def getslope(table, column, mask):
+    #dn/dmu = [N_det(mu_G) - N_det(1)] / (mu_G - 1)
     h = np.histogram(table[column][mask], bins=20)
     x_interp = np.array([np.mean(h[1][i-1:i+1]) for i in range(1,len(h[1]))])
     b, c = np.polyfit(x_interp, np.log10(h[0]), 1)

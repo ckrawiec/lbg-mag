@@ -6,6 +6,7 @@ import json
 import sys
 import ConfigParser
 import glob
+import os
 from astropy.io import fits
 from astropy.table import Table, vstack, join
 from myutils import joincorrecttype
@@ -67,6 +68,7 @@ class DataSet():
             plt.xlabel('{} - {}'.format(magcol.format('I'), magcol.format('Z')))
             plt.ylabel('{} - {}'.format(magcol.format('R'), magcol.format('I')))
             plt.savefig(self.output+'_typecolors.png')
+            plt.close()
 
 def getzgroups(columns):
     zgroups = []
@@ -89,8 +91,9 @@ def parseconfigs(config_file):
     params['zp_file'] = config.get('I/O','zp_file')
     params['data_file'] = config.get('I/O','data_file')
     params['lens_file'] = config.get('I/O','lens_file')
-    params['balrog_zp_file'] = config.get('I/O','balrog_zp_file')
-    params['balrog_data_files'] = config.get('I/O','balrog_data_files')
+    params['random_lens_file'] = config.get('I/O','random_lens_file')
+    params['balrog_zp_files'] = config.get('I/O','balrog_zp_files')
+    params['balrog_sim_files'] = config.get('I/O','balrog_sim_files')
     params['test_zp_file'] = config.get('I/O','test_zp_file')
     params['test_data_file'] = config.get('I/O','test_data_file')
     params['output'] = config.get('I/O','output')
@@ -100,7 +103,8 @@ def parseconfigs(config_file):
     params['data_id_col'] = config.get('Columns','data_id_col')
     params['test_data_id_col'] = config.get('Columns','test_data_id_col')
     params['test_z_col'] = config.get('Columns','test_z_col')
-
+    params['balrog_id_col'] = config.get('Columns','balrog_id_col')
+    
     #Assignment Criteria
     params['redshift_index'] = json.loads(config.get('Assignments','redshift_index'))
     params['below'] = json.loads(config.get('Assignments','below'))
@@ -113,6 +117,16 @@ def main(args):
     #parse config file
     params = parseconfigs(args[1])
 
+    #check existence of output files from this code
+    outputs = glob.glob('{}_type*.fits'.format(params['output']))
+    check_output = 0
+    for output in outputs:
+        if os.path.exists(output):
+            sys.stderr.write('File {} already exists.\n'.format(output))
+            check_output += 1
+    if check_output:
+        exit()
+    
     #get all z-prob files
     zp_files = glob.glob(params['zp_file'])
     sys.stderr.write('Found {} z-prob files.\n'.format(len(zp_files)))
@@ -123,18 +137,53 @@ def main(args):
     sys.stderr.write('Done.\n Found {} objects.\n'.format(len(zp_tab)))
 
     #create target and lens data objects
-    objects = DataSet(zp_tab, params['data_file'], params['zp_id_col'], params['output'])
+    objects = DataSet(zp_tab,
+                      params['data_file'],
+                      params['zp_id_col'],
+                      params['output'])
     lenses = fits.open(params['lens_file'])[1].data
     
     #assign types to objects from zprob_file based on their probabilities
-    objects.assignTypes(params['redshift_index'], params['below'], params['above'], check=True)
+    objects.assignTypes(params['redshift_index'],
+                        params['below'], params['above'],
+                        check=False)
 
     #files from test region
-    test = DataSet(Table.read(params['test_zp_file']), params['test_data_file'],
-                   params['test_data_id_col'], params['output']+'_test', z_col=params['test_z_col'])
+    test = DataSet(Table.read(params['test_zp_file']),
+                   params['test_data_file'],
+                   params['test_data_id_col'],
+                   params['output']+'_test',
+                   z_col=params['test_z_col'])
 
-    test.assignTypes(params['redshift_index'], params['below'], params['above'], check=False)
-    
+    test.assignTypes(params['redshift_index'],
+                     params['below'], params['above'],
+                     check=False)
+
+    #use balrogs as randoms for correction function
+    balrog = {}
+    for balrog_file in glob.glob(params['balrog_sim_files']):
+        itab = balrog_file.find('tab')
+        tabnum = balrog_file[itab+3:itab+5]
+        balrog_zp_files = glob.glob(params['balrog_zp_files'].format(tabnum))
+        if len(balrog_zp_files)>0:
+            balrog_zp_table = Table.read(balrog_zp_files[0])
+            sys.stderr.write('Reading Balrog z-prob files for Table {}...'.format(tabnum))
+            for balrog_zp_file in balrog_zp_files[1:]:
+                balrog_zp_table = vstack([balrog_zp_table, Table.read(balrog_zp_file)])
+            sys.stderr.write('Done.\n Found {} objects.\n'.format(len(balrog_zp_table)))
+
+            this_balrog = DataSet(balrog_zp_table,
+                                  balrog_file,
+                                  params['balrog_id_col'],
+                                  params['output']+'_balrog'+str(tabnum))
+            this_balrog.assignTypes(params['redshift_index'],
+                                    params['below'], params['above'],
+                                    check=True)
+            balrog[tabnum] = {}
+            for objtype in objects.types:
+                balrog[tabnum][objtype] = this_balrog.types[objtype]
+                #######
+        
     #measured quantities, vectors and matrices
     n_vec = []
     P_mat = []
@@ -145,13 +194,17 @@ def main(args):
         #write type objects to table
         this_table = '{}_type{}.fits'.format(params['output'], objtype)
         objects.types[objtype].write(this_table)
+
+        random_table = '{}_type{}_randoms.fits'.format(params['output'], objtype)
+        these_randoms = vstack([balrog[ti][objtype] for ti in balrog.keys()])
+        these_randoms.write(random_table)
         
         #for each type - create parameters for treecorr 
         these_params = {}
         these_params['source_file'] = this_table
         these_params['lens_file'] = params['lens_file'] 
-        these_params['random_source_file'] = params['lens_file'] ### 
-        these_params['random_lens_file'] = params['lens_file'] ###
+        these_params['random_source_file'] = random_table
+        these_params['random_lens_file'] = params['random_lens_file']
         these_params['source_ra'] = 'RA'
         these_params['source_dec'] = 'DEC'
         these_params['output'] = params['output']+'_type'+str(objtype)
@@ -164,36 +217,43 @@ def main(args):
                 
         P_mat.append([])
         k_mat.append([])
-                 
+
+        #plot correlation functions
+        plt.errorbar(nn['R_nom'], nn['xi'], yerr=nn['sigma_xi'],
+                     fmt='o-', label='Type '+str(objtype))
+        
+        
         for true_objtype in objects.types:
-            """
-            get assigned types of detected objects
-            dn/dmu = [N_det(mu_G) - N_det(1)] / (mu_G - 1)
-            get probabilities of true/false assignment
-            Using test file, true z, assign types to test targets, get P(H|G) from test templates
-            Run dNdMu with mu_G
-           
-            k_mat[-1].append(testk['k{}{}'.format(objtype, true_objtype)])
-            """
+            #"true" redshifts of true_objtype objects in test field
             z_photo = test.data[test.zcol]
             zmin = np.min(params['true_ranges'][true_objtype])
             zmax = np.max(params['true_ranges'][true_objtype])
             z_true = np.where((z_photo >= zmin) & (z_photo <= zmax))
+            #ids of true_objtype objects
             ids = test.data[test.idcol][z_true]
 
+            #"true" redshifts of objtype objects in test field
             this_z_photo = test.types[objtype][test.zcol]
             this_z_true = np.where((this_z_photo >= zmin) & (this_z_photo <= zmax))
             these_ids = test.types[objtype][test.idcol][this_z_true]
 
-            #Assigned to this type while truly in this group
+            #assigned to objtype while actually true_objtype
             both = float(len(set(ids).intersection(these_ids)))
             
-            #Save number of objects called objtype when actually true_objtype
+            #probabilities of true/false assignment
             P_mat[-1].append(both/float(len(ids)))
-
-
-            #itab = tab.find('tab')
-            #tabnum = tab[itab+3:itab+5]
+                        
+            #Run dNdMu with mu_G
+            #k = dNdMu(these_randoms, mu=1.1)
+            #k_mat[-1].append(k)
+            
+    plt.legend()
+    plt.ylabel('xi')
+    plt.xlabel('R_nom')
+    plt.ylim()
+    plt.grid()
+    plt.savefig(params['output']+'_typecorrs.png')
+    plt.close()
 
     print n_vec
     print P_mat
