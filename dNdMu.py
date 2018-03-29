@@ -3,22 +3,23 @@ import numpy as np
 import sys
 import time
 import glob
+import measuresignal as ms
 from astropy.io import fits
 from scipy.spatial import ckdtree
 from scipy.interpolate import griddata
 
 #params
-params = {}
-params['filters'] = 'GRIZ'
-params['mu'] = 1.1
-params['flux_cut'] = 40.
-params['deep_file'] = '/Users/Christina/DES/data/y1a1_gold_dfull_cosmos.fits'
-params['balrog_files'] = '/Users/Christina/DES/data/balrog_sva1_tab*_TRUTH_zp_corr_fluxes.fits'
-params['sim_file_format'] = '/Users/Christina/DES/data/balrog/sva1/balrog_sva1_auto_tab{}_SIM.fits'
-params['deep_flux_column'] = 'FLUX_AUTO_{}'
-params['deep_size_column'] = 'FLUX_RADIUS_I'
-params['balrog_flux_column'] = 'FLUX_NOISELESS_{}'
-params['balrog_size_column'] = 'HALFLIGHTRADIUS_0'
+config = {}
+config['filters'] = 'GRIZ'
+config['mu'] = 1.1
+config['flux_cut'] = 40.
+config['deep_file'] = '/Users/Christina/DES/data/y1a1_gold_dfull_cosmos.fits'
+config['balrog_files'] = '/Users/Christina/DES/data/balrog_sva1_tab*_TRUTH_zp_corr_fluxes.fits'
+config['sim_file_format'] = '/Users/Christina/DES/data/balrog/sva1/balrog_sva1_auto_tab{}_SIM.fits'
+config['deep_flux_column'] = 'FLUX_AUTO_{}'
+config['deep_size_column'] = 'FLUX_RADIUS_I'
+config['balrog_flux_column'] = 'FLUX_NOISELESS_{}'
+config['balrog_size_column'] = 'HALFLIGHTRADIUS_0'
 
 
 def createdeep(deep, mu, fluxcol='FLUX_AUTO_{}', sizecol='FLUX_RADIUS_I',
@@ -142,12 +143,26 @@ def getslope(table, column, mask):
     return slope
 
 def main(args):
-    #params = parseconfigs(args[1])
-    
+    #find deep objects in true redshift range
+    #find matches in balrog truth
+    #find magnified matches in balrog truth
+    #count detections in SIM
+    #we have types for SIM detections
+
+    #if using in code, read params
+    if len(args) > 1:
+        params = args
+    else:
+        params = config
+                
     #open deep data file and create unlensed & lensed data vectors
+    #DataSet(zprob_tab, data_file, id_col, output, z_col=None)
     deep = fits.open(params['deep_file'])[1].data
-    gal_data, new_gal_data = createdeep(deep, params['mu'], params['deep_flux_column'], params['deep_size_column'],
-                                        params['flux_cut'], params['filters'])
+    gal_data, new_gal_data = createdeep(deep, params['mu'],
+                                        params['deep_flux_column'],
+                                        params['deep_size_column'],
+                                        params['flux_cut'], params['filters'])    
+    
 
     sys.stderr.write('Using {} objects from deep data.\n'.format(len(gal_data)))
     
@@ -165,7 +180,8 @@ def main(args):
 
         #open tables, get object flux/size data vectors
         brog = fits.open(tab)[1].data
-        br_data = createbalrog(brog, params['balrog_flux_column'], params['balrog_size_column'],
+        br_data = createbalrog(brog, params['balrog_flux_column'],
+                               params['balrog_size_column'],
                                params['flux_cut'], params['filters'])
         these_matches = findmatches(br_data, gal_data, new_gal_data)
 
@@ -213,6 +229,8 @@ def main(args):
     print "Detected original matches: {}".format(detections)
     print "Detected magnified matches: {}".format(new_detections)
 
+    k = float(new_detections - detections) / (mu - 1.)
+    return k
      
 if __name__=="__main__":
     main(sys.argv)    

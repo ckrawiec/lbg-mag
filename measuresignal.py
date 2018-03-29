@@ -58,7 +58,7 @@ class DataSet():
                          '^', markeredgecolor='none', c=c, markersize=3.,
                          label='type '+str(i))
 
-                print "Type {}: {} objects".format(i, len(data))
+            print "Type {}: {} objects".format(i, len(data))
                 
         if check:
             #save figure
@@ -69,6 +69,11 @@ class DataSet():
             plt.ylabel('{} - {}'.format(magcol.format('R'), magcol.format('I')))
             plt.savefig(self.output+'_typecolors.png')
             plt.close()
+
+    def getSlice(zmin, zmax):
+        #inclusive
+        zmask = (self.data[self.zcol] >= zmin) & (self.data[self.zcol] <= zmax)
+        return self.data[zmask]
 
 def getzgroups(columns):
     zgroups = []
@@ -244,19 +249,31 @@ def main(args):
             P_mat[-1].append(both/float(len(ids)))
                         
             #Run dNdMu with mu_G
-            #k = dNdMu(these_randoms, mu=1.1)
-            #k_mat[-1].append(k)
+            dNdMu_params = {'filters' : 'GRIZ',
+                            'mu' : 1.1,
+                            'flux_cut' : 40.,
+                            'deep_file' : '/Users/Christina/DES/data/y1a1_gold_dfull_cosmos.fits',
+                            'balrog_files' : '/Users/Christina/DES/data/balrog_sva1_tab*_TRUTH_zp_corr_fluxes.fits',
+                            'sim_file_format' : params['balrog_sim_files'],
+                            'deep_flux_column' : 'FLUX_AUTO_{}',
+                            'deep_size_column' : 'FLUX_RADIUS_I',
+                            'balrog_flux_column' : 'FLUX_NOISELESS_{}',
+                            'balrog_size_column' : 'HALFLIGHTRADIUS_0'}
+
+            k = dNdMu.main(dNdMu_params)
+            k_mat[-1].append(k)
             
     plt.legend()
     plt.ylabel('xi')
     plt.xlabel('R_nom')
-    plt.ylim()
+    plt.ylim(-0.01, 1.0)
     plt.grid()
     plt.savefig(params['output']+'_typecorrs.png')
     plt.close()
 
     print n_vec
     print P_mat
+    print k_mat
 
 
 
