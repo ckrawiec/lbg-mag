@@ -3,10 +3,16 @@ import numpy as np
 import sys
 import time
 import glob
-import measuresignal as ms
 from astropy.io import fits
 from scipy.spatial import ckdtree
 from scipy.interpolate import griddata
+from measuresignal import DataSet
+
+test = True
+sizes = False
+logs = False
+filters = 'GRIZ'
+gridfile = '/Users/Christina/DES/data/balrog/sva1/balrog_tab01_avg_star_fluxradiusi_0.1deg.fits'
 
 #params
 config = {}
@@ -20,98 +26,106 @@ config['deep_flux_column'] = 'FLUX_AUTO_{}'
 config['deep_size_column'] = 'FLUX_RADIUS_I'
 config['balrog_flux_column'] = 'FLUX_NOISELESS_{}'
 config['balrog_size_column'] = 'HALFLIGHTRADIUS_0'
+config['redshifts'] = [0.0, 9.9]
 
-
-def createdeep(deep, mu, fluxcol='FLUX_AUTO_{}', sizecol='FLUX_RADIUS_I',
-               fluxcut=40., filters='GRIZ', sizes=True, logs=True):
-    #cut out low fluxes and unrealistic sizes
-    flux_mask = (deep[fluxcol.format('G')]>fluxcut) & (deep[fluxcol.format('R')]>fluxcut) & (deep[fluxcol.format('I')]>fluxcut) & (deep[fluxcol.format('Z')]>fluxcut)
-    size_mask = (deep[sizecol]>0.)
+def createVecs(self, fluxcut, sizecut, modestclass=None,
+               zrange=[], calchlr=False,
+               magnify=False, mu=1.):
+        #cut out low fluxes and unrealistic sizes
+        new_data = self.data
     
-    #separate galaxies & stars using MODEST_CLASS
-    gals = deep[(deep['MODEST_CLASS']==1) & flux_mask & size_mask]
-    stars = deep[deep['MODEST_CLASS']==2]
-    
-    if logs:
-        #flux vectors
-        gal_vec = [np.log10(gals[fluxcol.format(f)]) for f in filters]
+        for filt in 'GRIZ':
+            new_data =  new_data[new_data[self.fluxcol.format(filt)]>fluxcut]
+            
+        if logs:
+            #flux vectors
+            data_vecs = np.array(zip(*[np.log10(new_data[self.fluxcol.format(f)]) for f in filters]))
+        else:
+            data_vecs = np.array(zip(*[new_data[self.fluxcol.format(f)] for f in filters]))
 
-        #magnified flux vectors
-        new_gal_vec = gal_vec + np.log10(mu)
-    else:
-        gal_vec = [gals[fluxcol.format(f)] for f in filters]
-        new_gal_vec = gal_vec * mu
+        if sizes:
+            mask = np.where(new_data[self.sizecol]>sizecut)
+            new_data = new_data[mask]
+            data_vecs = data_vecs[mask]
+            if calchlr:
+                stars = new_data[new_data['MODEST_CLASS']==2]
+                #get sizes
+                hlr = gethlr(self, new_data, stars)
+                #trim data to where half light radius makes sense
+                mask = np.where(hlr>0.)
+                data_vecs = data_vecs[mask]
+                new_data = new_data[mask]
+                #add sizes to data vector
+                unzip = zip(*data_vecs)
+                if logs:
+                    unzip.append(np.log10(hlr))
+                else:
+                    unzip.append(hlr)
+                data_vecs = zip(*unzip)               
+            else:
+                unzip = zip(*data_vecs)
+                if logs:
+                    unzip.append(np.log10(new_data[self.sizecol]))
+                else:
+                    unzip.append(new_data[self.sizecol])
+                data_vecs = zip(*unzip)
 
-    #get sizes
-    gal_hlr = gethlr(gals, stars)
-    if sizes:
-        #add sizes to data vector
-        gal_vec = np.vstack([gal_vec, gal_hlr])
-        
-        #add magnified sizes to magnified data vector
-        new_gal_hlr = gal_hlr * np.sqrt(mu)
-        new_gal_vec = np.vstack([new_gal_vec, new_gal_hlr])
+        if modestclass:
+            mask = new_data['MODEST_CLASS']==modestclass
+            new_data = new_data[mask]
+            data_vecs = np.array(data_vecs)[mask]
 
-    #trim data to where half light radius makes sense
-    gal_data = np.array( zip(*gal_vec) )[gal_hlr>0.]
-    new_gal_data = np.array( zip(*new_gal_vec) )[gal_hlr>0.]
-    return gal_data, new_gal_data
+        if magnify:
+            #add magnified sizes to magnified data vector
+            new_vecs = data_vecs
+            
+            if logs:
+                factor = np.array([(1. + np.log10(mu)/mu)] * len(filters))
+            else:
+                factor = np.array([mu]*len(filters))
+            
+            if sizes:
+                if logs:
+                    factor.append(0.5 * np.log10(mu)/mu + 1.)
+                else:
+                    factor.append(np.sqrt(mu))
+            zrange = np.array(zrange)
+            zmask = ((new_data[self.zcol]>zrange.min()) & (new_data[self.zcol]<zrange.max()))
+            new_vecs[zmask] = data_vecs[zmask] * factor
+            
+            data_vecs = new_vecs
+        return np.array(data_vecs)
 
-def createbalrog(brog, fluxcol='FLUX_NOISELESS_{}', hlrcol='HALFLIGHTRADIUS_0',
-                 fluxcut=40., filters='GRIZ', sizes=True, logs=True):
-    #cut out low fluxes and unrealistic sizes
-    flux_mask = (brog[fluxcol.format('G')]>0.) & (brog[fluxcol.format('R')]>0.) & (brog[fluxcol.format('I')]>0.) & (brog[fluxcol.format('Z')]>0.)
-    size_mask = (brog[hlrcol]>0.)
-    new_brog = brog[flux_mask & size_mask]
 
-    if logs:
-        br_vec = [np.log10(new_brog[fluxcol.format(f)]) for f in filters]
-    else:
-        br_vec = [new_brog[fluxcol.format(f)] for f in filters]
-    if sizes:
-        br_vec = np.vstack([br_vec, new_brog[hlrcol]])
-
-    br_data = np.array( zip(*br_vec) )
-    return br_data
-
-def findmatches(br_data, deep_data, new_deep_data):
+def findmatches(simvecs, datavecs):
     #save match information in a dictionary
-    matches = {'match radius': [],
-               'magnified match radius': [],
-               'index of match': [],
-               'index of magnified match': []}
+    matches = {'radius': [],
+               'index': []}
 
-    #create balrog tree
+    #create simulation tree
     sys.stderr.write('creating tree...')
-    br_tree = ckdtree.cKDTree(br_data)
+    simtree = ckdtree.cKDTree(simvecs)
     
-    #query tree for fluxes
-    sys.stderr.write('querying original...')
-    orig_d, orig_id = br_tree.query(deep_data)
-    matches['match radius'] = orig_d
+    #query tree for nearest data
+    sys.stderr.write('querying...')
+    r, index = simtree.query(datavecs)
+    matches['radius'] = r
         
-    #query tree for magnified fluxes
-    sys.stderr.write('querying magnified...')
-    new_d, new_id = br_tree.query(new_deep_data)
-    matches['magnified match radius'] = new_d
-        
-    #find balrog ids
-    matches['index of match'] = orig_id
-    matches['index of magnified match'] = new_id
+    #indices of simulation matches
+    matches['index'] = index
 
     return matches  
 
-def gethlr(gals, stars, sizecol='FLUX_RADIUS_I'):
+def gethlr(self, gals, stars, sizecol='FLUX_RADIUS_I'):
     """Use median star size around galaxies & galaxy size
     from balrog to estimate true half light radius of galaxies"""
-    grid_file = '/Users/Christina/DES/data/balrog/sva1/balrog_tab01_avg_star_fluxradiusi_0.1deg.fits'
-    to_grid = fits.open(grid_file)[1].data
-    sys.stderr.write('Grid file for average star radii:\n')
-    sys.stderr.write('    {}\n'.format(grid_file))
+  
+    to_grid = fits.open(gridfile)[1].data
     
-    #make tree of dfull stars
-    sys.stderr.write('    stars in deep table: {}\n'.format(len(stars)))
-    sys.stderr.write('    galaxies in deep table: {}\n'.format(len(gals)))
+    #make tree of stars
+    sys.stderr.write('Finding half-light radii...\n'.format(len(stars)))
+    sys.stderr.write('    stars: {}\n'.format(len(stars)))
+    sys.stderr.write('    galaxies: {}\n'.format(len(gals)))
 
     gal_pos = zip(gals['RA'], gals['DEC'])
     star_pos = zip(stars['RA'], stars['DEC'])
@@ -125,112 +139,136 @@ def gethlr(gals, stars, sizecol='FLUX_RADIUS_I'):
     sys.stderr.write('    Calculating average star radii...')
     start = time.time()
     #calculate median of star radii within 0.1 deg of each galaxy
-    gal_med_star_size = np.array([np.median(stars[sizecol][c]) for c in close])
+    med_star_size = np.array([np.median(stars[sizecol][c]) for c in close])
     end = time.time()
 
     #interpolate true galaxy half light radius using balrog data
-    gal_hlr = griddata(zip(to_grid['flux_radius_i'], to_grid['avg_flux_radius_i']), to_grid['hlr'],
-                       zip(gals[sizecol], gal_med_star_size))
+    gal_hlr = griddata(zip(to_grid['flux_radius_i'],
+                           to_grid['avg_flux_radius_i']),
+                       to_grid['hlr'],
+                       zip(gals[sizecol], med_star_size))
+
+    if test:
+        sys.stderr.write('Making plots...')
+        plt.scatter(to_grid['flux_radius_i'], to_grid['hlr'],
+                    edgecolor='none', c='g', label='balrog')
+        plt.scatter(gals[sizecol], gal_hlr,
+                    edgecolor='none', c='b', label='galaxies')
+        plt.xlabel('measured radius')
+        plt.ylabel('half light radius')
+        plt.xscale('log')
+        plt.legend(loc='best')
+        plt.savefig(self.output+'_hlrtest.png')
+        plt.close()
     sys.stderr.write('Done.\n')
     return gal_hlr
 
-def getslope(table, column, mask):
-    #dn/dmu = [N_det(mu_G) - N_det(1)] / (mu_G - 1)
-    h = np.histogram(table[column][mask], bins=20)
-    x_interp = np.array([np.mean(h[1][i-1:i+1]) for i in range(1,len(h[1]))])
-    b, c = np.polyfit(x_interp, np.log10(h[0]), 1)
-    slope = 2.5 * b
-    return slope
-
 def main(args):
-    #find deep objects in true redshift range
-    #find matches in balrog truth
-    #find magnified matches in balrog truth
-    #count detections in SIM
-    #we have types for SIM detections
-
+    DataSet.createVecs = createVecs
+    
     #if using in code, read params
     if len(args) > 1:
         params = args
     else:
         params = config
-                
+        sys.stderr.write('Warning: Using built-in parameters.\n')
+
     #open deep data file and create unlensed & lensed data vectors
-    #DataSet(zprob_tab, data_file, id_col, output, z_col=None)
-    deep = fits.open(params['deep_file'])[1].data
-    gal_data, new_gal_data = createdeep(deep, params['mu'],
-                                        params['deep_flux_column'],
-                                        params['deep_size_column'],
-                                        params['flux_cut'], params['filters'])    
-    
+    if 'deep_file' in params.keys():
+        data = DataSet(params['deep_file'], output='builtin_dNdMu_deep',
+                       fluxcol='FLUX_AUTO_{}',
+                       sizecol='FLUX_RADIUS_I',
+                       zcol='ZMINCHI2')
 
-    sys.stderr.write('Using {} objects from deep data.\n'.format(len(gal_data)))
+    elif 'Data' in params.keys():
+        data = params['Data']
+    else:
+        sys.stderr.write('Include "Data" or "deep_file" in config. Exiting\n')
+        exit()
+        
+    #separate galaxies using MODEST_CLASS
+    gals = data.createVecs(40., 0., modestclass=1, calchlr=True)
+    magnified_gals = data.createVecs(40., 0., modestclass=1, calchlr=True,
+                                     zrange=params['redshifts'], mu=params['mu'],
+                                     magnify=True)
+    h = plt.hist(gals, histtype='step', label='original', bins=50)
+    plt.hist(magnified_gals, histtype='step', linestyle='--', label='magnified', bins=h[1])
+    plt.xlabel('vector elements')
+    plt.legend(loc='best')
+    plt.savefig(data.output+'_data_vector_hist.png')
+    plt.close()
     
-    #indices of deep data
-    ids = list(range(len(gal_data)))
+    sys.stderr.write('Using {} galaxies.\n'.format(len(gals.data)))
+    
+    #indices of galaxy data
+    ids = list(range(len(gals.data)))
 
-    #cycle over all balrog tables
-    balrog_matches = {}
+    #cycle over all truth tables
+    truth_matches = {}
     tabnums = []
-    for tab in glob.glob(params['balrog_files'])[:2]:
-        itab = tab.find('tab')
-        tabnum = tab[itab+3:itab+5]
+    for table_name in glob.glob(params['balrog_files']):
+        itab = table_name.find('tab')
+        tabnum = table_name[itab+3:itab+5]
         tabnums.append(tabnum)
         sys.stderr.write('Working on balrog table {}...'.format(tabnum))
 
-        #open tables, get object flux/size data vectors
-        brog = fits.open(tab)[1].data
-        br_data = createbalrog(brog, params['balrog_flux_column'],
-                               params['balrog_size_column'],
-                               params['flux_cut'], params['filters'])
-        these_matches = findmatches(br_data, gal_data, new_gal_data)
+        #open tables, get flux and/or size data vectors
+        truth = DataSet(table_name, output='builtin_dNdMu_truth',
+                        fluxcol='FLUX_NOISELESS_{}',
+                        sizecol='HALFLIGHTRADIUS_0',
+                        idcol='BALROG_INDEX')
+        truth_vecs = truth.createVecs(40., 0.)
+
+        #find matches
+        original_matches  = findmatches(truth_vecs, gals)
+        magnified_matches = findmatches(truth_vecs, magnified_gals)
 
         #get balrog indices to match to sim tables later
-        these_matches['balrog index of match'] = brog['BALROG_INDEX'][these_matches['index of match']]
-        these_matches['balrog index of magnified match'] = brog['BALROG_INDEX'][these_matches['index of magnified match']]
-
-        balrog_matches[tabnum] = these_matches
+        truth_matches[tabnum] = {'original id': truth.data[truth.idcol][original_matches['index']],
+                                 'magnified id': truth.data[truth.idcol][magnified_matches['index']],
+                                 'original radius': original_matches['radius'],
+                                 'magnified radius': magnified_matches['radius']}
         sys.stderr.write('Done.\n')
 
     #find closest match for each object among all tables
-    match_radii = zip(*[balrog_matches[key]['match radius'] for key in balrog_matches.keys()])
-    new_match_radii = zip(*[balrog_matches[key]['magnified match radius'] for key in balrog_matches.keys()])
-    key_arg = np.argmin(match_radii, axis=1)
-    new_key_arg = np.argmin(new_match_radii, axis=1)
-    best_tabs = np.array(balrog_matches.keys())[key_arg]
-    best_new_tabs = np.array(balrog_matches.keys())[new_key_arg]
+    original_radii  = zip(*[truth_matches[key]['original radius'] for key in truth_matches.keys()])
+    magnified_radii = zip(*[truth_matches[key]['magnified radius'] for key in truth_matches.keys()])
+    original_arg  = np.argmin(original_radii, axis=1)
+    magnified_arg = np.argmin(magnified_radii, axis=1)
+    original_best  = np.array(truth_matches.keys())[original_arg]
+    magnified_best = np.array(truth_matches.keys())[magnified_arg]
 
     #save numbers of detections
-    detections, new_detections = 0, 0
+    original_detections, magnified_detections = 0, 0
     for tabnum in tabnums:
         #open sim catalog
         sim = fits.open(params['sim_file_format'].format(tabnum))[1].data
 
-        #focus on this table
-        this_set = np.where(best_tabs==tabnum)
-        this_new_set = np.where(best_new_tabs==tabnum)
+        #focus on this table number
+        original_set  = np.where(original_best==tabnum)
+        magnified_set = np.where(magnified_best==tabnum)
         
         #count objects that are found (detected) in sim catalog
         sys.stderr.write('Working on sim table {}...'.format(tabnum))
         sys.stderr.write('checking for detections...')
 
-        #detected objects whose truth fluxes match deep set
-        truth_matches = balrog_matches[tabnum]['balrog index of match'][this_set]
-        print len(truth_matches)
-        detections += len(set(sim['BALROG_INDEX']).intersection(truth_matches))
+        #detected objects whose truth fluxes match original set
+        truth_ids = truth_matches[tabnum]['original id'][original_set]
+        original_detections += len(set(sim['BALROG_INDEX']).intersection(truth_ids))
         
-        #detected objects whose truth fluxes match magnified deep set
-        new_truth_matches = balrog_matches[tabnum]['balrog index of magnified match'][this_new_set]
-        new_detections += len(set(sim['BALROG_INDEX']).intersection(new_truth_matches))
+        #detected objects whose truth fluxes match magnified set
+        truth_ids = truth_matches[tabnum]['magnified id'][magnified_set]
+        magnified_detections += len(set(sim['BALROG_INDEX']).intersection(truth_ids))
 
         sys.stderr.write('Done.\n')
         
     #report information
-    print "Detected original matches: {}".format(detections)
-    print "Detected magnified matches: {}".format(new_detections)
+    print "Detected original matches: {}".format(original_detections)
+    print "Detected magnified matches: {}".format(magnified_detections)
 
-    k = float(new_detections - detections) / (mu - 1.)
+    k = float(magnified_detections - original_detections) / (params['mu'] - 1.)
     return k
-     
+
+
 if __name__=="__main__":
     main(sys.argv)    
