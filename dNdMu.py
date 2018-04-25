@@ -6,7 +6,7 @@ import glob
 from astropy.io import fits
 from scipy.spatial import ckdtree
 from scipy.interpolate import griddata
-from measuresignal import DataSet
+from dataset import DataSet
 
 test = True
 sizes = False
@@ -14,7 +14,7 @@ logs = False
 filters = 'GRIZ'
 gridfile = '/Users/Christina/DES/data/balrog/sva1/balrog_tab01_avg_star_fluxradiusi_0.1deg.fits'
 
-#params
+#built-in params
 config = {}
 config['filters'] = 'GRIZ'
 config['mu'] = 1.1
@@ -30,16 +30,21 @@ config['deep_size_column'] = 'FLUX_RADIUS_I'
 config['balrog_flux_column'] = 'FLUX_NOISELESS_{}'
 config['balrog_size_column'] = 'HALFLIGHTRADIUS_0'
 config['redshifts'] = [-100, 100]
+config['deep_output'] = 'builtin_dNdMu_deep'
+config['balrog_output'] = 'builtin_dNdMu_truth'
 
 def createVecs(self, fluxcut, sizecut,
                typeclass=None,
                zrange=[], calchlr=False,
                magnify=False, mu=1.):
+        
         #cut out low fluxes and unrealistic sizes
         new_data = self.data
-    
-        for filt in 'GRIZ':
-            new_data =  new_data[new_data[self.fluxcol.format(filt)]>fluxcut]
+        sys.stderr.write("Data has {} objects before cuts.\n".format(len(new_data)))
+        for filt in filters:
+            print fluxcut
+            new_data = new_data[np.where(new_data[self.fluxcol.format(filt)]>fluxcut)]
+            sys.stderr.write("Data has {} objects after flux cut.\n".format(len(new_data)))
             
         if logs:
             #flux vectors
@@ -78,7 +83,8 @@ def createVecs(self, fluxcut, sizecut,
             mask = new_data[self.typecol]==typeclass
             new_data = new_data[mask]
             data_vecs = np.array(data_vecs)[mask]
-
+            sys.stderr.write("Data has {} objects after class cut.\n".format(len(new_data)))
+            
         if magnify:
             zrange = np.array(zrange)
             zmask = ((new_data[self.zcol]>zrange.min()) & (new_data[self.zcol]<zrange.max()))
@@ -96,7 +102,8 @@ def createVecs(self, fluxcut, sizecut,
                 else:
                     factor.append(np.sqrt(mu))
 
-            data_vecs[zmask] *= factor
+            if len(data_vecs[zmask]) > 0:
+                np.array(data_vecs)[zmask] *= factor
 
         return np.array(data_vecs)
 
@@ -179,10 +186,11 @@ def main(args):
 
     #open deep data file and create unlensed & lensed data vectors
     if 'deep_file' in params.keys():
-        data = DataSet(params['deep_file'], output='builtin_dNdMu_deep',
-                       fluxcol='FLUX_AUTO_{}',
-                       sizecol='FLUX_RADIUS_I',
-                       zcol='ZMINCHI2',
+        data = DataSet(params['deep_file'],
+                       output=params['deep_output'],
+                       fluxcol=params['deep_flux_column'],
+                       sizecol=params['deep_size_column'],
+                       zcol=params['deep_z_column'],
                        typecol=params['deep_type_column'])
 
     elif 'Data' in params.keys():
@@ -196,15 +204,14 @@ def main(args):
                            typeclass=1, calchlr=True)
     magnified_gals = data.createVecs(params['flux_min'], 0.,
                                      typeclass=1, calchlr=True,
-                                     zrange=params['redshifts'], mu=params['mu'],
-                                     magnify=True)
-
-    h = plt.hist(gals, histtype='step', label='original',
-                 bins=500, color=['b']*len(filters), normed=True)
-    plt.hist(magnified_gals, histtype='step', label='magnified',
-             bins=h[1], color=['r']*len(filters), normed=True)
-    plt.xlabel('vector elements')
-    
+                                     zrange=params['redshifts'], 
+                                     magnify=True, mu=params['mu'])
+    print len(gals)
+    #h = plt.hist(gals, histtype='step', label='original',
+    #             bins=500, color=['b']*len(filters), normed=True)
+    #plt.hist(magnified_gals, histtype='step', label='magnified',
+    #         bins=h[1], color=['r']*len(filters), normed=True)
+    #plt.xlabel('vector elements')
     
     sys.stderr.write('Using {} galaxies.\n'.format(len(gals)))
     
@@ -221,15 +228,16 @@ def main(args):
         sys.stderr.write('Working on balrog table {}...'.format(tabnum))
 
         #open tables, get flux and/or size data vectors
-        truth = DataSet(table_name, output='builtin_dNdMu_truth',
-                        fluxcol='FLUX_NOISELESS_{}',
-                        sizecol='HALFLIGHTRADIUS_0',
-                        idcol='BALROG_INDEX',
+        truth = DataSet(table_name,
+                        output=params['balrog_output'],
+                        fluxcol=params['balrog_flux_column'],
+                        sizecol=params['balrog_size_column'],
+                        idcol=params['balrog_id_column'],
                         typecol=params['balrog_type_column'])
         truth_vecs = truth.createVecs(params['flux_min'], 0., typeclass=1)
         sys.stderr.write('using {} galaxies...'.format(len(truth_vecs)))
-        plt.hist(truth_vecs, histtype='step', label= 'balrog',
-                 color=['g']*len(filters), bins=h[1], normed=True)
+        #plt.hist(truth_vecs, histtype='step', label= 'balrog',
+        #         color=['g']*len(filters), bins=h[1], normed=True)
 
         #find matches
         original_matches  = findmatches(truth_vecs, gals)
@@ -241,9 +249,9 @@ def main(args):
                                  'original radius': original_matches['radius'],
                                  'magnified radius': magnified_matches['radius']}
         sys.stderr.write('Done.\n')
-    plt.legend(loc='best')
-    plt.savefig(data.output+'_data_vector_hist.png')
-    plt.close()
+    #plt.legend(loc='best')
+    #plt.savefig(data.output+'_data_vector_hist.png')
+    #plt.close()
     
     #find closest match for each object among all tables
     original_radii  = zip(*[truth_matches[key]['original radius'] for key in truth_matches.keys()])
@@ -255,6 +263,7 @@ def main(args):
 
     #save numbers of detections
     original_detections, magnified_detections = 0, 0
+    detections = {}
     for tabnum in tabnums:
         #open sim catalog
         sim = fits.open(params['sim_file_format'].format(tabnum))[1].data
@@ -269,12 +278,15 @@ def main(args):
 
         #detected objects whose truth fluxes match original set
         truth_ids = truth_matches[tabnum]['original id'][original_set]
-        original_detections += len(set(sim['BALROG_INDEX']).intersection(truth_ids))
+        original_match_ids = set(sim['BALROG_INDEX']).intersection(truth_ids)
+        original_detections += len(original_match_ids)
         
         #detected objects whose truth fluxes match magnified set
         truth_ids = truth_matches[tabnum]['magnified id'][magnified_set]
-        magnified_detections += len(set(sim['BALROG_INDEX']).intersection(truth_ids))
-
+        magnified_match_ids = set(sim['BALROG_INDEX']).intersection(truth_ids)
+        magnified_detections += len(magnified_match_ids)
+        detections[tabnum] = {'original matches' : original_match_ids,
+                              'magnified matches' : magnified_match_ids}
         sys.stderr.write('Done.\n')
         
     #report information
@@ -282,7 +294,7 @@ def main(args):
     print "Detected magnified matches: {}".format(magnified_detections)
 
     k = float(magnified_detections - original_detections) / (params['mu'] - 1.)
-    return k
+    return k, detections
 
 
 if __name__=="__main__":

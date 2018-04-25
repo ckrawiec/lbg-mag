@@ -4,99 +4,19 @@ import matplotlib.pyplot as plt
 import sys
 import glob
 import os
+from dataset import DataSet
+from assigntypes import assignTypes
 from parse import parseconfigs
+from astropy.table import Table, vstack
 from astropy.io import fits
-from astropy.table import Table, vstack, join
-from myutils import joincorrecttype
-from matplotlib.pyplot import cm
 
 filters = 'GRIZ'
 
-class DataSet:
-    def __init__(self, datafile,  output=None,
-                 zprobtab=None, zcol=None, magcol=None, sizecol=None, fluxcol=None,
-                 idcol=None, typecol=None):
-        if zprobtab:
-            data_tab = Table.read(datafile)
-            self.data = join(zprobtab, data_tab)
-            self.zranges = getzgroups(self.data.columns)
-            self.probabilities = ['P'+str(zrange) for zrange in self.zranges]
-        else:
-            self.data = fits.open(datafile)[1].data
-            #for old output version in z-prob master branch
-            #self.data = joincorrecttype(data_file, zprob_file, id_col, id_col, float)
-        self.output = output
-        self.idcol = idcol
-        if zcol:
-            self.zcol = zcol
-        if magcol:
-            self.magcol = magcol
-        if fluxcol:
-            self.fluxcol = fluxcol
-        if sizecol:
-            self.sizecol = sizecol
-        if typecol:
-            self.typecol = typecol
 
-    def assignTypes(self, zindices, belows, aboves, check=False):
-        color = cm.rainbow(np.linspace(0,1,len(zindices)+1))
-        
-        if check:
-            plt.plot(self.data[self.magcol.format('I')]-self.data[self.magcol.format('Z')],
-                     self.data[self.magcol.format('R')]-self.data[self.magcol.format('I')],
-                     'o', markeredgecolor='none', c=color[-1], markersize=1.5, label='all')
-
-        self.types = {}
-        #cycle through redshift groups    
-        for i,c in zip(range(len(zindices)), color[:-1]):
-    
-            where = np.where(self.data)
-            data = self.data[where]
-
-            #cycle through this redshift group
-            for j in range(len(zindices[i])):
-                probs = [data[self.probabilities[zindex]] for zindex in zindices[i][j]]
-    
-                where = np.where((np.sum(probs, axis=0) < belows[i][j]) & (np.sum(probs, axis=0) > aboves[i][j]))
-                data = data[where]
-
-            #save data in type dictionary
-            self.types[i] = data
-
-            if check:
-                #check colors for each type
-                plt.plot(data[self.magcol.format('I')]-data[self.magcol.format('Z')],
-                         data[self.magcol.format('R')]-data[self.magcol.format('I')],
-                         '^', markeredgecolor='none', c=c, markersize=3.,
-                         label='type '+str(i))
-
-            print "Type {}: {} objects".format(i, len(data))
-                
-        if check:
-            #save figure
-            plt.legend(loc='best')
-            plt.xlim(-1,4)
-            plt.ylim(-1,4)
-            plt.xlabel('{} - {}'.format(self.magcol.format('I'), self.magcol.format('Z')))
-            plt.ylabel('{} - {}'.format(self.magcol.format('R'), self.magcol.format('I')))
-            plt.savefig(self.output+'_typecolors.png')
-            plt.close()
-
-    def getSlice(zmin, zmax):
-        #inclusive
-        zmask = (self.data[self.zcol] >= zmin) & (self.data[self.zcol] <= zmax)
-        return self.data[zmask]
-
-    
-def getzgroups(columns):
-    zgroups = []
-    for column in columns:
-        if column[:2]=="P[":
-            zgroups.append(eval(column[1:]))
-    ind = np.argsort([np.min(zgrp) for zgrp in zgroups])
-    out = [zgroups[i] for i in ind]
-
-    return out
+def getSlice(self, zmin, zmax):
+    #inclusive
+    zmask = (self.data[self.zcol] >= zmin) & (self.data[self.zcol] <= zmax)
+    return self.data[zmask]
 
 def main(args):
     #parse config file
@@ -113,7 +33,7 @@ def main(args):
         exit()
     
     #get all z-prob files
-    zp_files = glob.glob(params['zp_file'])
+    zp_files = glob.glob(params['zp_files'])
     sys.stderr.write('Found {} z-prob files.\n'.format(len(zp_files)))
     zp_tab = Table.read(zp_files[0])
     sys.stderr.write('Reading files...')
@@ -122,6 +42,7 @@ def main(args):
     sys.stderr.write('Done.\n Found {} objects.\n'.format(len(zp_tab)))
 
     #create target and lens data objects
+    DataSet.assignTypes = assignTypes
     objects = DataSet(params['data_file'],
                       zprobtab = zp_tab,
                       idcol=params['zp_id_col'],
@@ -144,7 +65,7 @@ def main(args):
     test.assignTypes(params['redshift_index'],
                      params['below'], params['above'])
 
-    #use balrogs as randoms for correction function
+    #use balrogs as randoms for correlation function
     balrog = {}
     for balrog_file in glob.glob(params['sim_file_format'].format('*'))[:2]:
         itab = balrog_file.find('tab')
@@ -159,7 +80,7 @@ def main(args):
 
             this_balrog = DataSet(balrog_file,
                                   zprobtab=balrog_zp_table,
-                                  idcol=params['balrog_id_col'],
+                                  idcol=params['balrog_id_column'],
                                   output=params['output']+'_balrog'+str(tabnum),
                                   magcol='MAG_AUTO_{}')
             this_balrog.assignTypes(params['redshift_index'],
@@ -175,6 +96,7 @@ def main(args):
     k_mat = []
     
     import dNdMu
+    DataSet.getSlice = getSlice
     for objtype in objects.types:
         sys.stderr.write('Working on type {}...'.format(objtype))
         
@@ -216,6 +138,7 @@ def main(args):
             zmin = np.min(params['true_ranges'][true_objtype])
             zmax = np.max(params['true_ranges'][true_objtype])
             z_true = np.where((z_photo >= zmin) & (z_photo <= zmax))
+            
             #ids of true_objtype objects
             ids = test.data[test.idcol][z_true]
 
@@ -231,21 +154,20 @@ def main(args):
             P_mat[-1].append(both/float(len(ids)))
                         
             #Run dNdMu with mu_G
-            dNdMu_params = {'filters' : 'GRIZ',
-                            'mu' : 1.5,
-                            'flux_cut' : 40.,
-                            'deep_file' : '/Users/Christina/DES/data/y1a1_gold_dfull_cosmos.fits',
-                            'balrog_files' : '/Users/Christina/DES/data/balrog_sva1_tab*_TRUTH_zp_corr_fluxes.fits',
-                            'sim_file_format' : params['sim_file_format'],
-                            'deep_flux_column' : 'FLUX_AUTO_{}',
-                            'deep_size_column' : 'FLUX_RADIUS_I',
-                            'balrog_flux_column' : 'FLUX_NOISELESS_{}',
-                            'balrog_size_column' : 'HALFLIGHTRADIUS_0',
-                            'redshifts' : [zmin, zmax]}
-            print dNdMu_params
+            dNdMu_params = params
+            dNdMu_params['redshifts'] = [zmin, zmax]
+            k, detections = dNdMu.main(dNdMu_params)
 
-            k = dNdMu.main(dNdMu_params)
-            k_mat[-1].append(k)
+            #for each table, find change in detected number for this objtype
+            old, new = 0, 0
+            for tabnum in balrog.keys():
+                #ids of objtype
+                type_ids = balrog[tabnum][objtype][params['balrog_id_column']]
+                #are they in detections?
+                old += len(set(type_ids).intersection(detections[tabnum]['original matches']))
+                new += len(set(type_ids).intersection(detections[tabnum]['magnified matches']))
+
+            k_mat[-1].append(float(new-old) / (params['mu'] - 1.))
             
     plt.legend()
     plt.ylabel('xi')
