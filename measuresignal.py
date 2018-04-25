@@ -1,11 +1,10 @@
 import findpairs
 import numpy as np
 import matplotlib.pyplot as plt
-import json
 import sys
-import ConfigParser
 import glob
 import os
+from parse import parseconfigs
 from astropy.io import fits
 from astropy.table import Table, vstack, join
 from myutils import joincorrecttype
@@ -14,8 +13,9 @@ from matplotlib.pyplot import cm
 filters = 'GRIZ'
 
 class DataSet:
-    def __init__(self, datafile, idcol=None, output=None,
-                 zprobtab=None, zcol=None, magcol=None, sizecol=None, fluxcol=None):
+    def __init__(self, datafile,  output=None,
+                 zprobtab=None, zcol=None, magcol=None, sizecol=None, fluxcol=None,
+                 idcol=None, typecol=None):
         if zprobtab:
             data_tab = Table.read(datafile)
             self.data = join(zprobtab, data_tab)
@@ -35,6 +35,8 @@ class DataSet:
             self.fluxcol = fluxcol
         if sizecol:
             self.sizecol = sizecol
+        if typecol:
+            self.typecol = typecol
 
     def assignTypes(self, zindices, belows, aboves, check=False):
         color = cm.rainbow(np.linspace(0,1,len(zindices)+1))
@@ -80,8 +82,6 @@ class DataSet:
             plt.savefig(self.output+'_typecolors.png')
             plt.close()
 
-    
-
     def getSlice(zmin, zmax):
         #inclusive
         zmask = (self.data[self.zcol] >= zmin) & (self.data[self.zcol] <= zmax)
@@ -97,39 +97,6 @@ def getzgroups(columns):
     out = [zgroups[i] for i in ind]
 
     return out
-
-
-def parseconfigs(config_file):
-    config = ConfigParser.SafeConfigParser()
-    config.read(config_file)
-
-    params = {}
-
-    #Input & Output Files
-    params['zp_file'] = config.get('I/O','zp_file')
-    params['data_file'] = config.get('I/O','data_file')
-    params['lens_file'] = config.get('I/O','lens_file')
-    params['random_lens_file'] = config.get('I/O','random_lens_file')
-    params['balrog_zp_files'] = config.get('I/O','balrog_zp_files')
-    params['sim_file_format'] = config.get('I/O','sim_file_format')
-    params['test_zp_file'] = config.get('I/O','test_zp_file')
-    params['test_data_file'] = config.get('I/O','test_data_file')
-    params['output'] = config.get('I/O','output')
-    
-    #Table Column Names
-    params['zp_id_col'] = config.get('Columns','zp_id_col')
-    params['data_id_col'] = config.get('Columns','data_id_col')
-    params['test_data_id_col'] = config.get('Columns','test_data_id_col')
-    params['test_z_col'] = config.get('Columns','test_z_col')
-    params['balrog_id_col'] = config.get('Columns','balrog_id_col')
-    
-    #Assignment Criteria
-    params['redshift_index'] = json.loads(config.get('Assignments','redshift_index'))
-    params['below'] = json.loads(config.get('Assignments','below'))
-    params['above'] = json.loads(config.get('Assignments','above'))
-    params['true_ranges'] = json.loads(config.get('Assignments','true_ranges'))
-
-    return params
 
 def main(args):
     #parse config file

@@ -18,7 +18,10 @@ gridfile = '/Users/Christina/DES/data/balrog/sva1/balrog_tab01_avg_star_fluxradi
 config = {}
 config['filters'] = 'GRIZ'
 config['mu'] = 1.1
-config['flux_cut'] = 40.
+config['flux_min'] = 0.
+config['deep_type_column'] = 'MODEST_CLASS'
+#Type of object. 1 = galaxy. 2 = quasar. 3 = star.
+config['balrog_type_column'] = 'OBJTYPE'
 config['deep_file'] = '/Users/Christina/DES/data/y1a1_gold_dfull_cosmos.fits'
 config['balrog_files'] = '/Users/Christina/DES/data/balrog_sva1_tab*_TRUTH_zp_corr_fluxes.fits'
 config['sim_file_format'] = '/Users/Christina/DES/data/balrog/sva1/balrog_sva1_auto_tab{}_SIM.fits'
@@ -26,9 +29,10 @@ config['deep_flux_column'] = 'FLUX_AUTO_{}'
 config['deep_size_column'] = 'FLUX_RADIUS_I'
 config['balrog_flux_column'] = 'FLUX_NOISELESS_{}'
 config['balrog_size_column'] = 'HALFLIGHTRADIUS_0'
-config['redshifts'] = [0.0, 9.9]
+config['redshifts'] = [-100, 100]
 
-def createVecs(self, fluxcut, sizecut, modestclass=None,
+def createVecs(self, fluxcut, sizecut,
+               typeclass=None,
                zrange=[], calchlr=False,
                magnify=False, mu=1.):
         #cut out low fluxes and unrealistic sizes
@@ -70,30 +74,30 @@ def createVecs(self, fluxcut, sizecut, modestclass=None,
                     unzip.append(new_data[self.sizecol])
                 data_vecs = zip(*unzip)
 
-        if modestclass:
-            mask = new_data['MODEST_CLASS']==modestclass
+        if typeclass:
+            mask = new_data[self.typecol]==typeclass
             new_data = new_data[mask]
             data_vecs = np.array(data_vecs)[mask]
 
         if magnify:
-            #add magnified sizes to magnified data vector
-            new_vecs = data_vecs
+            zrange = np.array(zrange)
+            zmask = ((new_data[self.zcol]>zrange.min()) & (new_data[self.zcol]<zrange.max()))
             
             if logs:
-                factor = np.array([(1. + np.log10(mu)/mu)] * len(filters))
+                ###THESE ARE WRONG
+                factor = np.array([(1. + np.log10(mu)/data_vecs[zmask])] * len(filters))
             else:
                 factor = np.array([mu]*len(filters))
             
             if sizes:
+                #add magnified sizes to magnified data vector
                 if logs:
                     factor.append(0.5 * np.log10(mu)/mu + 1.)
                 else:
                     factor.append(np.sqrt(mu))
-            zrange = np.array(zrange)
-            zmask = ((new_data[self.zcol]>zrange.min()) & (new_data[self.zcol]<zrange.max()))
-            new_vecs[zmask] = data_vecs[zmask] * factor
-            
-            data_vecs = new_vecs
+
+            data_vecs[zmask] *= factor
+
         return np.array(data_vecs)
 
 
@@ -178,7 +182,8 @@ def main(args):
         data = DataSet(params['deep_file'], output='builtin_dNdMu_deep',
                        fluxcol='FLUX_AUTO_{}',
                        sizecol='FLUX_RADIUS_I',
-                       zcol='ZMINCHI2')
+                       zcol='ZMINCHI2',
+                       typecol=params['deep_type_column'])
 
     elif 'Data' in params.keys():
         data = params['Data']
@@ -187,21 +192,24 @@ def main(args):
         exit()
         
     #separate galaxies using MODEST_CLASS
-    gals = data.createVecs(40., 0., modestclass=1, calchlr=True)
-    magnified_gals = data.createVecs(40., 0., modestclass=1, calchlr=True,
+    gals = data.createVecs(params['flux_min'], 0.,
+                           typeclass=1, calchlr=True)
+    magnified_gals = data.createVecs(params['flux_min'], 0.,
+                                     typeclass=1, calchlr=True,
                                      zrange=params['redshifts'], mu=params['mu'],
                                      magnify=True)
-    h = plt.hist(gals, histtype='step', label='original', bins=50)
-    plt.hist(magnified_gals, histtype='step', linestyle='--', label='magnified', bins=h[1])
+
+    h = plt.hist(gals, histtype='step', label='original',
+                 bins=500, color=['b']*len(filters), normed=True)
+    plt.hist(magnified_gals, histtype='step', label='magnified',
+             bins=h[1], color=['r']*len(filters), normed=True)
     plt.xlabel('vector elements')
-    plt.legend(loc='best')
-    plt.savefig(data.output+'_data_vector_hist.png')
-    plt.close()
     
-    sys.stderr.write('Using {} galaxies.\n'.format(len(gals.data)))
+    
+    sys.stderr.write('Using {} galaxies.\n'.format(len(gals)))
     
     #indices of galaxy data
-    ids = list(range(len(gals.data)))
+    ids = list(range(len(gals)))
 
     #cycle over all truth tables
     truth_matches = {}
@@ -216,8 +224,12 @@ def main(args):
         truth = DataSet(table_name, output='builtin_dNdMu_truth',
                         fluxcol='FLUX_NOISELESS_{}',
                         sizecol='HALFLIGHTRADIUS_0',
-                        idcol='BALROG_INDEX')
-        truth_vecs = truth.createVecs(40., 0.)
+                        idcol='BALROG_INDEX',
+                        typecol=params['balrog_type_column'])
+        truth_vecs = truth.createVecs(params['flux_min'], 0., typeclass=1)
+        sys.stderr.write('using {} galaxies...'.format(len(truth_vecs)))
+        plt.hist(truth_vecs, histtype='step', label= 'balrog',
+                 color=['g']*len(filters), bins=h[1], normed=True)
 
         #find matches
         original_matches  = findmatches(truth_vecs, gals)
@@ -229,7 +241,10 @@ def main(args):
                                  'original radius': original_matches['radius'],
                                  'magnified radius': magnified_matches['radius']}
         sys.stderr.write('Done.\n')
-
+    plt.legend(loc='best')
+    plt.savefig(data.output+'_data_vector_hist.png')
+    plt.close()
+    
     #find closest match for each object among all tables
     original_radii  = zip(*[truth_matches[key]['original radius'] for key in truth_matches.keys()])
     magnified_radii = zip(*[truth_matches[key]['magnified radius'] for key in truth_matches.keys()])
