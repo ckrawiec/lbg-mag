@@ -45,5 +45,6 @@ def parseconfigs(config_file):
     #dNdMu
     params['mu'] = config.get('dNdMu','mu')
     params['flux_min'] = config.get('dNdMu','flux_min')
+    params['flux_max'] = config.get('dNdMu','flux_max')
 
     return params
