@@ -142,11 +142,6 @@ def main(args):
             zmax = np.max(params['true_ranges'][true_objtype])
             z_true = np.where((z_photo >= zmin) & (z_photo <= zmax))
 
-            #Run dNdMu with mu_G
-            dNdMu_params = params
-            dNdMu_params['redshifts'] = [zmin, zmax]
-            #k, detections = dNdMu.main(dNdMu_params)
-            
             #ids of true_objtype objects
             ids = test.data[test.idcol][z_true]
 
@@ -160,8 +155,11 @@ def main(args):
             
             #probabilities of true/false assignment
             P_mat[-1].append(both/float(len(ids)))
-                        
-            
+
+            #Run dNdMu with mu_G
+            dNdMu_params = params
+            dNdMu_params['redshifts'] = [zmin, zmax]
+            #k, detections = dNdMu.main(dNdMu_params)       
 
             #for each table, find change in detected number for this objtype
             old, new = 0, 0

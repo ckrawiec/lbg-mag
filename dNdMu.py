@@ -33,7 +33,8 @@ config['redshifts'] = [-100, 100]
 config['deep_output'] = 'builtin_dNdMu_deep'
 config['balrog_output'] = 'builtin_dNdMu_truth'
 
-def createVecs(self, fluxcut, sizecut,
+def createVecs(self, fluxmin, fluxmax,
+               sizecut,
                typeclass=None,
                zrange=[], calchlr=False,
                magnify=False, mu=1.):
@@ -44,7 +45,8 @@ def createVecs(self, fluxcut, sizecut,
     new_data = self.data
 
     for filt in filters:
-        flux_mask = np.array(new_data[self.fluxcol.format(filt)]>0.)
+        flux_mask = np.array((new_data[self.fluxcol.format(filt)]>fluxmin) & \
+                             (new_data[self.fluxcol.format(filt)]<fluxmax))
         new_data = new_data[flux_mask]
 
     sys.stderr.write("Data has {} objects after flux cut.\n".format(len(new_data)))
@@ -204,9 +206,11 @@ def main(args):
         exit()
         
     #separate galaxies using MODEST_CLASS
-    gals = data.createVecs(params['flux_min'], 0.,
+    gals = data.createVecs(params['flux_min'], params['flux_max'],
+                           0.,
                            typeclass=1, calchlr=True)
-    magnified_gals = data.createVecs(params['flux_min'], 0.,
+    magnified_gals = data.createVecs(params['flux_min'], params['flux_max'],
+                                     0.,
                                      typeclass=1, calchlr=True,
                                      zrange=params['redshifts'], 
                                      magnify=True, mu=params['mu'])
@@ -238,7 +242,7 @@ def main(args):
                         sizecol=params['balrog_size_column'],
                         idcol=params['balrog_id_column'],
                         typecol=params['balrog_type_column'])
-        truth_vecs = truth.createVecs(params['flux_min'], 0., typeclass=1)
+        truth_vecs = truth.createVecs(params['flux_min'], params['flux_max'], 0., typeclass=1)
         sys.stderr.write('using {} galaxies...'.format(len(truth_vecs)))
         #plt.hist(truth_vecs, histtype='step', label= 'balrog',
         #         color=['g']*len(filters), bins=h[1], normed=True)
