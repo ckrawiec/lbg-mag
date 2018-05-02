@@ -37,7 +37,7 @@ def main(args):
     zp_files = glob.glob(params['zp_files'])
     sys.stderr.write('Found {} z-prob files.\n'.format(len(zp_files)))
     sys.stderr.write('Reading files...')
-    zp_tabs = [Table(zp_file) for zp_file in zp_files]
+    zp_tabs = [Table.read(zp_file) for zp_file in zp_files]
     zp_tab = vstack(zp_tabs)
     sys.stderr.write('Done.\n Found {} objects.\n'.format(len(zp_tab)))
 
@@ -74,17 +74,17 @@ def main(args):
         tabnum = balrog_file[itab+3:itab+5]
         balrog_zp_files = glob.glob(params['balrog_zp_files'].format(tabnum))
         if len(balrog_zp_files)>0:
-            balrog_zp_table = Table.read(balrog_zp_files[0])
             sys.stderr.write('Reading Balrog z-prob files for Table {}...'.format(tabnum))
-            for balrog_zp_file in balrog_zp_files[1:]:
-                balrog_zp_table = vstack([balrog_zp_table, Table.read(balrog_zp_file)])
+            balrog_zp_tabs = [Table.read(balrog_zp_file) for balrog_zp_file in balrog_zp_files]
+            balrog_zp_tab = vstack(balrog_zp_tabs)
             sys.stderr.write('Done.\n Found {} objects.\n'.format(len(balrog_zp_table)))
 
             this_balrog = DataSet(balrog_file,
-                                  zprobtab=balrog_zp_table,
+                                  zprobtab=balrog_zp_tab,
                                   idcol=params['balrog_id_column'],
                                   output=params['output']+'_balrog'+str(tabnum),
                                   magcol='MAG_AUTO_{}')
+            
             this_balrog.assignTypes(params['redshift_index'],
                                     params['below'], params['above'])
             balrog[tabnum] = {}
