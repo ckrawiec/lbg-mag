@@ -36,10 +36,9 @@ def main(args):
     #get all z-prob files
     zp_files = glob.glob(params['zp_files'])
     sys.stderr.write('Found {} z-prob files.\n'.format(len(zp_files)))
-    zp_tab = Table.read(zp_files[0])
     sys.stderr.write('Reading files...')
-    for zp_file in zp_files[1:]:
-        zp_tab = vstack([zp_tab, Table.read(zp_file)])
+    zp_tabs = [Table(zp_file) for zp_file in zp_files]
+    zp_tab = vstack(zp_tabs)
     sys.stderr.write('Done.\n Found {} objects.\n'.format(len(zp_tab)))
 
     #create target and lens data objects
