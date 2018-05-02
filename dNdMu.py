@@ -38,74 +38,78 @@ def createVecs(self, fluxcut, sizecut,
                zrange=[], calchlr=False,
                magnify=False, mu=1.):
         
-        #cut out low fluxes and unrealistic sizes
-        new_data = self.data
-        sys.stderr.write("Data has {} objects before cuts.\n".format(len(new_data)))
-        for filt in filters:
-            print fluxcut
-            new_data = new_data[np.where(new_data[self.fluxcol.format(filt)]>fluxcut)]
-            sys.stderr.write("Data has {} objects after flux cut.\n".format(len(new_data)))
-            
-        if logs:
-            #flux vectors
-            data_vecs = np.array(zip(*[np.log10(new_data[self.fluxcol.format(f)]) for f in filters]))
-        else:
-            data_vecs = np.array(zip(*[new_data[self.fluxcol.format(f)] for f in filters]))
+    #cut out low fluxes and unrealistic sizes
+    sys.stderr.write("Data has {} objects before cuts.\n".format(len(self.data)))
+        
+    new_data = self.data
 
-        if sizes:
-            mask = np.where(new_data[self.sizecol]>sizecut)
-            new_data = new_data[mask]
+    for filt in filters:
+        flux_mask = np.array(new_data[self.fluxcol.format(filt)]>0.)
+        new_data = new_data[flux_mask]
+
+    sys.stderr.write("Data has {} objects after flux cut.\n".format(len(new_data)))
+        
+    if logs:
+        #flux vectors
+        data_vecs = np.array(zip(*[np.log10(new_data[self.fluxcol.format(f)]) for f in filters]))
+    else:
+        data_vecs = np.array(zip(*[new_data[self.fluxcol.format(f)] for f in filters]))
+        
+    if sizes:
+        mask = np.where(new_data[self.sizecol]>sizecut)
+        new_data = new_data[mask]
+        data_vecs = data_vecs[mask]
+        if calchlr:
+            stars = new_data[new_data['MODEST_CLASS']==2]
+            #get sizes
+            hlr = gethlr(self, new_data, stars)
+            #trim data to where half light radius makes sense
+            mask = np.where(hlr>0.)
             data_vecs = data_vecs[mask]
-            if calchlr:
-                stars = new_data[new_data['MODEST_CLASS']==2]
-                #get sizes
-                hlr = gethlr(self, new_data, stars)
-                #trim data to where half light radius makes sense
-                mask = np.where(hlr>0.)
-                data_vecs = data_vecs[mask]
-                new_data = new_data[mask]
-                #add sizes to data vector
-                unzip = zip(*data_vecs)
-                if logs:
-                    unzip.append(np.log10(hlr))
-                else:
-                    unzip.append(hlr)
-                data_vecs = zip(*unzip)               
-            else:
-                unzip = zip(*data_vecs)
-                if logs:
-                    unzip.append(np.log10(new_data[self.sizecol]))
-                else:
-                    unzip.append(new_data[self.sizecol])
-                data_vecs = zip(*unzip)
-
-        if typeclass:
-            mask = new_data[self.typecol]==typeclass
             new_data = new_data[mask]
-            data_vecs = np.array(data_vecs)[mask]
-            sys.stderr.write("Data has {} objects after class cut.\n".format(len(new_data)))
-            
-        if magnify:
-            zrange = np.array(zrange)
-            zmask = ((new_data[self.zcol]>zrange.min()) & (new_data[self.zcol]<zrange.max()))
-            
+            #add sizes to data vector
+            unzip = zip(*data_vecs)
             if logs:
-                ###THESE ARE WRONG
-                factor = np.array([(1. + np.log10(mu)/data_vecs[zmask])] * len(filters))
+                unzip.append(np.log10(hlr))
             else:
-                factor = np.array([mu]*len(filters))
+                unzip.append(hlr)
+            data_vecs = zip(*unzip)               
+        else:
+            unzip = zip(*data_vecs)
+            if logs:
+                unzip.append(np.log10(new_data[self.sizecol]))
+            else:
+                unzip.append(new_data[self.sizecol])
+            data_vecs = zip(*unzip)
+
+    if typeclass:
+        mask = new_data[self.typecol]==typeclass
+        new_data = new_data[mask]
+        data_vecs = np.array(data_vecs)[mask]
+        sys.stderr.write("Data has {} objects after class cut.\n".format(len(new_data)))
+        
+    if magnify:
+        zrange = np.array(zrange)
+        zmask = np.array((new_data[self.zcol]>zrange.min()) & (new_data[self.zcol]<zrange.max()))
+        
+        if logs:
+            ###THESE ARE WRONG
+            factor = np.array([(1. + np.log10(mu)/data_vecs[zmask])] * len(filters))
+        else:
+            factor = np.array([mu]*len(filters))
+        
+        if sizes:
+            #add magnified sizes to magnified data vector
+            if logs:
+                factor.append(0.5 * np.log10(mu)/mu + 1.)
+            else:
+                factor.append(np.sqrt(mu))
+                
+        if len(data_vecs[zmask]) > 0:
+            new_vecs = np.product(np.array(data_vecs)[zmask], factor, axis=1)
+            data_vecs[zmask] = new_vecs
             
-            if sizes:
-                #add magnified sizes to magnified data vector
-                if logs:
-                    factor.append(0.5 * np.log10(mu)/mu + 1.)
-                else:
-                    factor.append(np.sqrt(mu))
-
-            if len(data_vecs[zmask]) > 0:
-                np.array(data_vecs)[zmask] *= factor
-
-        return np.array(data_vecs)
+    return np.array(data_vecs)
 
 
 def findmatches(simvecs, datavecs):

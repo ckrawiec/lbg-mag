@@ -10,6 +10,7 @@ from parse import parseconfigs
 from astropy.table import Table, vstack
 from astropy.io import fits
 
+
 filters = 'GRIZ'
 
 
@@ -43,11 +44,13 @@ def main(args):
 
     #create target and lens data objects
     DataSet.assignTypes = assignTypes
+    DataSet.getSlice = getSlice
     objects = DataSet(params['data_file'],
                       zprobtab = zp_tab,
                       idcol=params['zp_id_col'],
                       output=params['output'],
                       magcol='MAG_AUTO_{}')
+    
     lenses = fits.open(params['lens_file'])[1].data
     
     #assign types to objects from zprob_file based on their probabilities
@@ -138,6 +141,11 @@ def main(args):
             zmin = np.min(params['true_ranges'][true_objtype])
             zmax = np.max(params['true_ranges'][true_objtype])
             z_true = np.where((z_photo >= zmin) & (z_photo <= zmax))
+
+            #Run dNdMu with mu_G
+            dNdMu_params = params
+            dNdMu_params['redshifts'] = [zmin, zmax]
+            #k, detections = dNdMu.main(dNdMu_params)
             
             #ids of true_objtype objects
             ids = test.data[test.idcol][z_true]
@@ -153,10 +161,7 @@ def main(args):
             #probabilities of true/false assignment
             P_mat[-1].append(both/float(len(ids)))
                         
-            #Run dNdMu with mu_G
-            dNdMu_params = params
-            dNdMu_params['redshifts'] = [zmin, zmax]
-            k, detections = dNdMu.main(dNdMu_params)
+            
 
             #for each table, find change in detected number for this objtype
             old, new = 0, 0
@@ -164,10 +169,10 @@ def main(args):
                 #ids of objtype
                 type_ids = balrog[tabnum][objtype][params['balrog_id_column']]
                 #are they in detections?
-                old += len(set(type_ids).intersection(detections[tabnum]['original matches']))
-                new += len(set(type_ids).intersection(detections[tabnum]['magnified matches']))
+           #     old += len(set(type_ids).intersection(detections[tabnum]['original matches']))
+           #     new += len(set(type_ids).intersection(detections[tabnum]['magnified matches']))
 
-            k_mat[-1].append(float(new-old) / (params['mu'] - 1.))
+            #k_mat[-1].append(float(new-old) / (params['mu'] - 1.))
             
     plt.legend()
     plt.ylabel('xi')
