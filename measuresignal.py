@@ -156,18 +156,18 @@ def main(args):
             #Run dNdMu with mu_G
             dNdMu_params = params
             dNdMu_params['redshifts'] = [zmin, zmax]
-            k, detections = dNdMu.main(dNdMu_params)
+            #k, detections = dNdMu.main(dNdMu_params)
 
             #for each table, find change in detected number for this objtype
             old, new = 0, 0
-            for tabnum in balrog.keys():
+            #for tabnum in balrog.keys():
                 #ids of objtype
-                type_ids = balrog[tabnum][objtype][params['balrog_id_column']]
+            #    type_ids = balrog[tabnum][objtype][params['balrog_id_column']]
                 #are they in detections?
-                old += len(set(type_ids).intersection(detections[tabnum]['original matches']))
-                new += len(set(type_ids).intersection(detections[tabnum]['magnified matches']))
+            #    old += len(set(type_ids).intersection(detections[tabnum]['original matches']))
+            #    new += len(set(type_ids).intersection(detections[tabnum]['magnified matches']))
 
-            k_mat[-1].append(float(new-old) / (params['mu'] - 1.))
+            #k_mat[-1].append(float(new-old) / (params['mu'] - 1.))
             
     plt.legend()
     plt.ylabel('xi')
