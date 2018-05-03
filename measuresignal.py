@@ -155,6 +155,7 @@ def main(args):
             #probabilities of true/false assignment
             P_mat[-1].append(both/float(len(ids)))
 
+
             #Run dNdMu with mu_G
             dNdMu_params = params
             dNdMu_params['redshifts'] = [zmin, zmax]
@@ -162,9 +163,9 @@ def main(args):
 
             #for each table, find change in detected number for this objtype
             old, new = 0, 0
-            for tabnum in balrog.keys():
+            #for tabnum in balrog.keys():
                 #ids of objtype
-                type_ids = balrog[tabnum][objtype][params['balrog_id_column']]
+            #    type_ids = balrog[tabnum][objtype][params['balrog_id_column']]
                 #are they in detections?
            #     old += len(set(type_ids).intersection(detections[tabnum]['original matches']))
            #     new += len(set(type_ids).intersection(detections[tabnum]['magnified matches']))
