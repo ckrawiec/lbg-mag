@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.pyplot import cm
 
-def assignTypes(self, zindices, belows, aboves, check=False):
+def assignTypes(self, zindices, belows, aboves, check=True):
     color = cm.rainbow(np.linspace(0,1,len(zindices)+1))
         
     if check:
@@ -31,7 +31,7 @@ def assignTypes(self, zindices, belows, aboves, check=False):
             #check colors for each type
             plt.plot(data[self.magcol.format('I')]-data[self.magcol.format('Z')],
                      data[self.magcol.format('R')]-data[self.magcol.format('I')],
-                     '^', markeredgecolor='none', c=c, markersize=3.,
+                     '^', markeredgecolor='none', c=c, markersize=2.5,
                      label='type '+str(i))
 
         print "Type {}: {} objects".format(i, len(data))

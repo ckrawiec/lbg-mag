@@ -69,7 +69,7 @@ def main(args):
 
     #use balrogs as randoms for correlation function
     balrog = {}
-    for balrog_file in glob.glob(params['sim_file_format'].format('*'))[:2]:
+    for balrog_file in glob.glob(params['sim_file_format'].format('*')):
         itab = balrog_file.find('tab')
         tabnum = balrog_file[itab+3:itab+5]
         balrog_zp_files = glob.glob(params['balrog_zp_files'].format(tabnum))
@@ -77,7 +77,7 @@ def main(args):
             sys.stderr.write('Reading Balrog z-prob files for Table {}...'.format(tabnum))
             balrog_zp_tabs = [Table.read(balrog_zp_file) for balrog_zp_file in balrog_zp_files]
             balrog_zp_tab = vstack(balrog_zp_tabs)
-            sys.stderr.write('Done.\n Found {} objects.\n'.format(len(balrog_zp_table)))
+            sys.stderr.write('Done.\n Found {} objects.\n'.format(len(balrog_zp_tab)))
 
             this_balrog = DataSet(balrog_file,
                                   zprobtab=balrog_zp_tab,
@@ -174,7 +174,7 @@ def main(args):
     plt.legend()
     plt.ylabel('xi')
     plt.xlabel('R_nom')
-    plt.ylim(-0.01, 1.0)
+    #plt.ylim(-0.01, 1.0)
     plt.grid()
     plt.savefig(params['output']+'_typecorrs.png')
     plt.close()
