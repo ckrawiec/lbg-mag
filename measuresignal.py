@@ -27,9 +27,13 @@ def main(args):
     outputs = glob.glob('{}_type*.fits'.format(params['output']))
     check_output = 0
     for output in outputs:
-        if os.path.exists(output):
+        if os.path.exists(output) and not params['overwrite_fits']:
             sys.stderr.write('File {} already exists.\n'.format(output))
             check_output += 1
+        elif os.path.exists(output) and params['overwrite_fits']:
+            sys.stderr.write('File {} already exists and will be overwritten.\n'.format(output))
+        else:
+            sys.stderr.write('File {} will be created.\n'.format(output))
     if check_output:
         exit()
     
@@ -104,7 +108,8 @@ def main(args):
         
         #write type objects to table
         this_table = '{}_type{}.fits'.format(params['output'], objtype)
-        objects.types[objtype].write(this_table)
+        if params['overwrite_fits']:
+            objects.types[objtype].write(this_table)
 
         random_table = '{}_type{}_randoms.fits'.format(params['output'], objtype)
         these_randoms = vstack([balrog[ti][objtype] for ti in balrog.keys()])
