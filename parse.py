@@ -21,6 +21,7 @@ def parseconfigs(config_file):
     params['balrog_files'] = config.get('I/O','balrog_files')
     params['deep_output'] = config.get('I/O','deep_output')
     params['balrog_output'] = config.get('I/O','balrog_output')
+    params['overwrite_fits'] = config.getboolean('I/O','overwrite_fits')
     
     #Table Column Names
     params['zp_id_col'] = config.get('Columns','zp_id_column')
