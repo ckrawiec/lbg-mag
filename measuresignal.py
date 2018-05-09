@@ -1,3 +1,5 @@
+import matplotlib
+matplotlib.use('agg')
 import findpairs
 import numpy as np
 import matplotlib.pyplot as plt
@@ -19,6 +21,7 @@ def getSlice(self, zmin, zmax):
     zmask = (self.data[self.zcol] >= zmin) & (self.data[self.zcol] <= zmax)
     return self.data[zmask]
 
+@profile
 def main(args):
     #parse config file
     params = parseconfigs(args[1])
