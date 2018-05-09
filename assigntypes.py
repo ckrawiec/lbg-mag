@@ -14,23 +14,21 @@ def assignTypes(self, zindices, belows, aboves, check=True):
     
     #cycle through redshift groups    
     for i,c in zip(range(len(zindices)), color[:-1]):
-        where = np.where(self.data)
-        data = self.data[where]
+        mask = np.array([True] * len(self.data))
 
         #cycle through this redshift group
         for j in range(len(zindices[i])):
-            probs = [data[self.probabilities[zindex]] for zindex in zindices[i][j]]
-    
-            where = np.where((np.sum(probs, axis=0) < belows[i][j]) & (np.sum(probs, axis=0) > aboves[i][j]))
-            data = data[where]
+            probs = [self.data[self.probabilities[zindex]] for zindex in zindices[i][j]]    
+            where = np.array((np.sum(probs, axis=0) < belows[i][j]) & (np.sum(probs, axis=0) > aboves[i][j]))
+            mask = mask & where
 
-        #save data in type dictionary
-        self.types[i] = data
+        #save data mask in type dictionary
+        self.types[i] = mask
 
         if check:
             #check colors for each type
-            plt.plot(data[self.magcol.format('I')]-data[self.magcol.format('Z')],
-                     data[self.magcol.format('R')]-data[self.magcol.format('I')],
+            plt.plot(self.data[mask][self.magcol.format('I')]-self.data[mask][self.magcol.format('Z')],
+                     self.data[mask][self.magcol.format('R')]-self.data[mask][self.magcol.format('I')],
                      '^', markeredgecolor='none', c=c, markersize=2.5,
                      label='type '+str(i))
 

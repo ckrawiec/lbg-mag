@@ -93,7 +93,7 @@ def main(args):
                                     params['below'], params['above'])
             balrog[tabnum] = {}
             for objtype in objects.types:
-                balrog[tabnum][objtype] = this_balrog.types[objtype]
+                balrog[tabnum][objtype] = this_balrog.data[this_balrog.types[objtype]]
                 #######
         
     #measured quantities, vectors and matrices
@@ -109,7 +109,7 @@ def main(args):
         #write type objects to table
         this_table = '{}_type{}.fits'.format(params['output'], objtype)
         if params['overwrite_fits']:
-            objects.types[objtype].write(this_table)
+            objects.data[objects.types[objtype]].write(this_table)
 
         random_table = '{}_type{}_randoms.fits'.format(params['output'], objtype)
         these_randoms = vstack([balrog[ti][objtype] for ti in balrog.keys()])
@@ -150,9 +150,9 @@ def main(args):
             ids = test.data[test.idcol][z_true]
 
             #"true" redshifts of objtype objects in test field
-            this_z_photo = test.types[objtype][test.zcol]
+            this_z_photo = test.data[test.types[objtype]][test.zcol]
             this_z_true = np.where((this_z_photo >= zmin) & (this_z_photo <= zmax))
-            these_ids = test.types[objtype][test.idcol][this_z_true]
+            these_ids = test.data[test.types[objtype]][test.idcol][this_z_true]
 
             #assigned to objtype while actually true_objtype
             both = float(len(set(ids).intersection(these_ids)))
