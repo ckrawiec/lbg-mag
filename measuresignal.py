@@ -12,34 +12,37 @@ from parse import parseconfigs
 from astropy.table import Table, vstack
 from astropy.io import fits
 
-
 filters = 'GRIZ'
 
+def calcmu(n, n0, P, k):
+    diff = n - np.dot(P, n0)
+    return np.dot(diff, np.linalg.inv(k))
 
-def getSlice(self, zmin, zmax):
-    #inclusive
-    zmask = (self.data[self.zcol] >= zmin) & (self.data[self.zcol] <= zmax)
-    return self.data[zmask]
-
-@profile
-def main(args):
-    #parse config file
-    params = parseconfigs(args[1])
-
-    #check existence of output files from this code
-    outputs = glob.glob('{}_type*.fits'.format(params['output']))
+def checkoutputs(params, outputs):
     check_output = 0
     for output in outputs:
-        if os.path.exists(output) and not params['overwrite_fits']:
-            sys.stderr.write('File {} already exists.\n'.format(output))
-            check_output += 1
-        elif os.path.exists(output) and params['overwrite_fits']:
-            sys.stderr.write('File {} already exists and will be overwritten.\n'.format(output))
-        else:
-            sys.stderr.write('File {} will be created.\n'.format(output))
+        print output
+        if 'corr' in output:
+            if os.path.exists(output) and not params['overwrite_corr_files']:
+                sys.stderr.write('File {} already exists.\n'.format(output))
+                check_output += 1
+            elif os.path.exists(output):
+                sys.stderr.write('File {} already exists and will be overwritten.\n'.format(output))
+
+        elif 'type' in output:
+            if os.path.exists(output) and not params['overwrite_type_files']:
+                sys.stderr.write('File {} already exists.\n'.format(output))
+                check_output += 1
+            elif os.path.exists(output):
+                sys.stderr.write('File {} already exists and will be overwritten.\n'.format(output))
+        
     if check_output:
-        exit()
+        sys.exit('Delete files or set overwrite=True. Exiting.\n')
+
+    return params
     
+
+def gatherdata(params):
     #get all z-prob files
     zp_files = glob.glob(params['zp_files'])
     sys.stderr.write('Found {} z-prob files.\n'.format(len(zp_files)))
@@ -47,7 +50,7 @@ def main(args):
     zp_tabs = [Table.read(zp_file) for zp_file in zp_files]
     zp_tab = vstack(zp_tabs)
     sys.stderr.write('Done.\n Found {} objects.\n'.format(len(zp_tab)))
-
+    
     #create target and lens data objects
     DataSet.assignTypes = assignTypes
     DataSet.getSlice = getSlice
@@ -98,40 +101,57 @@ def main(args):
             for objtype in objects.types:
                 balrog[tabnum][objtype] = this_balrog.data[this_balrog.types[objtype]]
                 #######
-        
+                
+    return objects, test, balrog
+
+def main(args):
+    #parse config file
+    params = parseconfigs(args[1])
+
+    #check existence of output files from this code
+    outputs = glob.glob('{}_type*.fits'.format(params['output']))
+    params = checkoutputs(params, outputs)
+
+    #create data or read from existing files
+    print params['overwrite_type_files']
+    
+    if params['overwrite_type_files']:
+        objects, test, balrog = gatherdata(params)
+            
     #measured quantities, vectors and matrices
     n_vec = []
     P_mat = []
     k_mat = []
     
     import dNdMu
-    DataSet.getSlice = getSlice
-    for objtype in objects.types:
+    for objtype in range(len(params['true_ranges'])):
         sys.stderr.write('Working on type {}...'.format(objtype))
         
-        #write type objects to table
+        #write/read type objects to/from table
         this_table = '{}_type{}.fits'.format(params['output'], objtype)
-        if params['overwrite_fits']:
-            objects.data[objects.types[objtype]].write(this_table)
-
         random_table = '{}_type{}_randoms.fits'.format(params['output'], objtype)
-        these_randoms = vstack([balrog[ti][objtype] for ti in balrog.keys()])
-        these_randoms.write(random_table)
-        
-        #for each type - create parameters for treecorr 
-        these_params = {}
-        these_params['source_file'] = this_table
-        these_params['lens_file'] = params['lens_file'] 
-        these_params['random_source_file'] = random_table
-        these_params['random_lens_file'] = params['random_lens_file']
-        these_params['source_ra'] = 'RA'
-        these_params['source_dec'] = 'DEC'
-        these_params['output'] = params['output']+'_type'+str(objtype)
-        
-        #calculate correlation with lenses - call treecorr
-        nn = findpairs.treecorr(these_params)
-        n_vec.append(nn['npairs'])
+        if params['overwrite_type_files']:
+            objects.data[objects.types[objtype]].write(this_table, overwrite=True)
+            these_randoms = vstack([balrog[ti][objtype] for ti in balrog.keys()])
+            these_randoms.write(random_table, overwrite=True)
 
+        if params['overwrite_corr_files']:
+            #for each type - create parameters for treecorr 
+            these_params = {}
+            these_params['source_file'] = this_table
+            these_params['lens_file'] = params['lens_file'] 
+            these_params['random_source_file'] = random_table
+            these_params['random_lens_file'] = params['random_lens_file']
+            these_params['source_ra'] = 'RA'
+            these_params['source_dec'] = 'DEC'
+            these_params['output'] = params['output']+'_type'+str(objtype)
+        
+            #calculate correlation with lenses - call treecorr
+            nn = findpairs.treecorr(these_params)
+        else:
+            nn = Table.read(params['output']+'_type'+str(objtype)+'_treecorrNN.fits')
+            
+        n_vec.append(nn['npairs'])
         sys.stderr.write('Done.\n')
                 
         P_mat.append([])
@@ -167,7 +187,7 @@ def main(args):
             #Run dNdMu with mu_G
             dNdMu_params = params
             dNdMu_params['redshifts'] = [zmin, zmax]
-            #k, detections = dNdMu.main(dNdMu_params)       
+            k, detections = dNdMu.main(dNdMu_params)       
 
             #for each table, find change in detected number for this objtype
             old, new = 0, 0
@@ -192,6 +212,8 @@ def main(args):
     print "P = ", P_mat
     print "k = ", k_mat
 
+    #mu = calcmu(n, n0, P, k)
+    #print "mu = ", mu
 
 if __name__=="__main__":
     main(sys.argv)
