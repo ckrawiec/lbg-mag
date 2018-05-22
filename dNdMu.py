@@ -47,8 +47,9 @@ def createVecs(self, fluxmin, fluxmax,
     new_data = self.data
 
     for filt in filters:
-        flux_mask = np.array((new_data[self.fluxcol.format(filt)]>fluxmin) & \
-                             (new_data[self.fluxcol.format(filt)]<fluxmax))
+        flux_mask = (new_data[self.fluxcol.format(filt)]>float(fluxmin)) & \
+                    (new_data[self.fluxcol.format(filt)]<float(fluxmax))
+
         new_data = new_data[flux_mask]
 
     sys.stderr.write("Data has {} objects after flux cut.\n".format(len(new_data)))
@@ -110,7 +111,7 @@ def createVecs(self, fluxmin, fluxmax,
                 factor.append(np.sqrt(mu))
                 
         if len(data_vecs[zmask]) > 0:
-            new_vecs = np.product(np.array(data_vecs)[zmask], factor, axis=1)
+            new_vecs = np.product([np.array(data_vecs)[zmask], factor])
             data_vecs[zmask] = new_vecs
             
     return np.array(data_vecs)

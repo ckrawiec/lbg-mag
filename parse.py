@@ -51,8 +51,8 @@ def parseconfigs(config_file):
     params['true_ranges'] = json.loads(config.get('Assignments','true_ranges'))
 
     #dNdMu
-    params['mu'] = config.get('dNdMu','mu')
-    params['flux_min'] = config.get('dNdMu','flux_min')
-    params['flux_max'] = config.get('dNdMu','flux_max')
+    params['mu'] = config.getfloat('dNdMu','mu')
+    params['flux_min'] = config.getfloat('dNdMu','flux_min')
+    params['flux_max'] = config.getfloat('dNdMu','flux_max')
 
     return params

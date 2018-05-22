@@ -32,7 +32,7 @@ def assignTypes(self, zindices, belows, aboves, check=True):
                      '^', markeredgecolor='none', c=c, markersize=2.5,
                      label='type '+str(i))
 
-        print "Type {}: {} objects".format(i, len(data))
+        print "Type {}: {} objects".format(i, len(self.data[mask]))
                 
     if check:
         #save figure

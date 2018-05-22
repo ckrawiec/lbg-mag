@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import sys
 import glob
 import os
-from dataset import DataSet
+from dataset import DataSet, getzgroups
 from assigntypes import assignTypes
 from parse import parseconfigs
 from astropy.table import Table, vstack
@@ -21,18 +21,15 @@ def calcmu(n, n0, P, k):
 def checkoutputs(params, outputs):
     check_output = 0
     for output in outputs:
-        print output
         if 'corr' in output:
             if os.path.exists(output) and not params['overwrite_corr_files']:
-                sys.stderr.write('File {} already exists.\n'.format(output))
-                check_output += 1
+                sys.stderr.write('File {} already exists and will be used.\n'.format(output))
             elif os.path.exists(output):
                 sys.stderr.write('File {} already exists and will be overwritten.\n'.format(output))
 
         elif 'type' in output:
             if os.path.exists(output) and not params['overwrite_type_files']:
-                sys.stderr.write('File {} already exists.\n'.format(output))
-                check_output += 1
+                sys.stderr.write('File {} already exists and will be used.\n'.format(output))
             elif os.path.exists(output):
                 sys.stderr.write('File {} already exists and will be overwritten.\n'.format(output))
         
@@ -52,21 +49,28 @@ def gatherdata(params):
     sys.stderr.write('Done.\n Found {} objects.\n'.format(len(zp_tab)))
     
     #create target and lens data objects
-    DataSet.assignTypes = assignTypes
-    DataSet.getSlice = getSlice
     objects = DataSet(params['data_file'],
                       zprobtab = zp_tab,
                       idcol=params['zp_id_col'],
                       output=params['output'],
                       magcol='MAG_AUTO_{}')
     
-    lenses = fits.open(params['lens_file'])[1].data
-    
     #assign types to objects from zprob_file based on their probabilities
     objects.assignTypes(params['redshift_index'],
                         params['below'], params['above'])
-    
+
+    return objects
+
+def main(args):
+    #parse config file
+    params = parseconfigs(args[1])
+
+    #check existence of output files from this code
+    outputs = glob.glob('{}_type*.fits'.format(params['output']))
+    params = checkoutputs(params, outputs)
+
     #files from test region
+    DataSet.assignTypes = assignTypes
     test = DataSet(params['test_data_file'],
                    zprobtab=Table.read(params['test_zp_file']),
                    idcol=params['test_data_id_col'],
@@ -76,6 +80,10 @@ def gatherdata(params):
 
     test.assignTypes(params['redshift_index'],
                      params['below'], params['above'])
+    
+    #create data or read from existing files    
+    if params['overwrite_type_files']:
+        objects = gatherdata(params)
 
     #use balrogs as randoms for correlation function
     balrog = {}
@@ -94,32 +102,15 @@ def gatherdata(params):
                                   idcol=params['balrog_id_column'],
                                   output=params['output']+'_balrog'+str(tabnum),
                                   magcol='MAG_AUTO_{}')
-            
             this_balrog.assignTypes(params['redshift_index'],
-                                    params['below'], params['above'])
+                                params['below'], params['above'])
             balrog[tabnum] = {}
-            for objtype in objects.types:
+            for objtype in test.types:
                 balrog[tabnum][objtype] = this_balrog.data[this_balrog.types[objtype]]
-                #######
-                
-    return objects, test, balrog
 
-def main(args):
-    #parse config file
-    params = parseconfigs(args[1])
-
-    #check existence of output files from this code
-    outputs = glob.glob('{}_type*.fits'.format(params['output']))
-    params = checkoutputs(params, outputs)
-
-    #create data or read from existing files
-    print params['overwrite_type_files']
-    
-    if params['overwrite_type_files']:
-        objects, test, balrog = gatherdata(params)
-            
     #measured quantities, vectors and matrices
     n_vec = []
+    n0_vec = []
     P_mat = []
     k_mat = []
     
@@ -131,11 +122,18 @@ def main(args):
         this_table = '{}_type{}.fits'.format(params['output'], objtype)
         random_table = '{}_type{}_randoms.fits'.format(params['output'], objtype)
         if params['overwrite_type_files']:
-            objects.data[objects.types[objtype]].write(this_table, overwrite=True)
+            this_data = objects.data[objects.types[objtype]]
+            this_data.write(this_table, overwrite=True)
+            n0_vec.append(np.sum(this_data[objects.probabilities[objtype]]))
             these_randoms = vstack([balrog[ti][objtype] for ti in balrog.keys()])
             these_randoms.write(random_table, overwrite=True)
-
-        if params['overwrite_corr_files']:
+        else:
+            this_data = Table.read(this_table)
+            these_Ps = ['P'+str(zrange) for zrange in getzgroups(this_data.columns)]
+            n0_vec.append(np.sum(this_data[these_Ps[objtype]]))
+            
+        this_output = params['output']+'_type'+str(objtype)+'_treecorrNN.fits'
+        if (params['overwrite_corr_files']) or not os.path.exists(this_output):
             #for each type - create parameters for treecorr 
             these_params = {}
             these_params['source_file'] = this_table
@@ -149,7 +147,7 @@ def main(args):
             #calculate correlation with lenses - call treecorr
             nn = findpairs.treecorr(these_params)
         else:
-            nn = Table.read(params['output']+'_type'+str(objtype)+'_treecorrNN.fits')
+            nn = Table.read(this_output)
             
         n_vec.append(nn['npairs'])
         sys.stderr.write('Done.\n')
@@ -162,7 +160,7 @@ def main(args):
                      fmt='o-', label='Type '+str(objtype))
         
         
-        for true_objtype in objects.types:
+        for true_objtype in range(len(params['true_ranges'])):
             #"true" redshifts of true_objtype objects in test field
             z_photo = test.data[test.zcol]
             zmin = np.min(params['true_ranges'][true_objtype])
@@ -173,6 +171,7 @@ def main(args):
             ids = test.data[test.idcol][z_true]
 
             #"true" redshifts of objtype objects in test field
+            #if params['overwrite_type_files']:
             this_z_photo = test.data[test.types[objtype]][test.zcol]
             this_z_true = np.where((this_z_photo >= zmin) & (this_z_photo <= zmax))
             these_ids = test.data[test.types[objtype]][test.idcol][this_z_true]
@@ -183,7 +182,6 @@ def main(args):
             #probabilities of true/false assignment
             P_mat[-1].append(both/float(len(ids)))
 
-
             #Run dNdMu with mu_G
             dNdMu_params = params
             dNdMu_params['redshifts'] = [zmin, zmax]
@@ -191,14 +189,14 @@ def main(args):
 
             #for each table, find change in detected number for this objtype
             old, new = 0, 0
-            #for tabnum in balrog.keys():
+            for tabnum in detections.keys():
                 #ids of objtype
-            #    type_ids = balrog[tabnum][objtype][params['balrog_id_column']]
+                type_ids = balrog[tabnum][objtype][params['balrog_id_column']]
                 #are they in detections?
-           #     old += len(set(type_ids).intersection(detections[tabnum]['original matches']))
-           #     new += len(set(type_ids).intersection(detections[tabnum]['magnified matches']))
+                old += len(set(type_ids).intersection(detections[tabnum]['original matches']))
+                new += len(set(type_ids).intersection(detections[tabnum]['magnified matches']))
 
-            #k_mat[-1].append(float(new-old) / (params['mu'] - 1.))
+            k_mat[-1].append(float(new-old) / (params['mu'] - 1.))
             
     plt.legend()
     plt.ylabel('xi')
@@ -209,11 +207,12 @@ def main(args):
     plt.close()
 
     print "n = ", n_vec
+    print "n0 = ", n0_vec
     print "P = ", P_mat
     print "k = ", k_mat
 
-    #mu = calcmu(n, n0, P, k)
-    #print "mu = ", mu
+    mu = calcmu(n_vec, n0_vec, P_mat, k_mat)
+    print "mu = ", mu
 
 if __name__=="__main__":
     main(sys.argv)
