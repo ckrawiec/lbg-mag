@@ -115,6 +115,7 @@ def main(args):
     k_mat = []
     
     import dNdMu
+    output_table = {}
     for objtype in range(len(params['true_ranges'])):
         sys.stderr.write('Working on type {}...'.format(objtype))
         
@@ -124,13 +125,16 @@ def main(args):
         if params['overwrite_type_files']:
             this_data = objects.data[objects.types[objtype]]
             this_data.write(this_table, overwrite=True)
-            n0_vec.append(np.sum(this_data[objects.probabilities[objtype]]))
+            this_n0 = np.sum(this_data[objects.probabilities[objtype]])
             these_randoms = vstack([balrog[ti][objtype] for ti in balrog.keys()])
             these_randoms.write(random_table, overwrite=True)
         else:
             this_data = Table.read(this_table)
             these_Ps = ['P'+str(zrange) for zrange in getzgroups(this_data.columns)]
-            n0_vec.append(np.sum(this_data[these_Ps[objtype]]))
+            this_n0 = np.sum(this_data[these_Ps[objtype]])
+
+        output_table['n0_{}'.format(objtype)] = this_n0
+        n0_vec.append(this_n0)
             
         this_output = params['output']+'_type'+str(objtype)+'_treecorrNN.fits'
         if (params['overwrite_corr_files']) or not os.path.exists(this_output):
@@ -148,7 +152,8 @@ def main(args):
             nn = findpairs.treecorr(these_params)
         else:
             nn = Table.read(this_output)
-            
+
+        output_table['nn{}'.format(objtype)] = nn['npairs']
         n_vec.append(nn['npairs'])
         sys.stderr.write('Done.\n')
                 
@@ -158,7 +163,6 @@ def main(args):
         #plot correlation functions
         plt.errorbar(nn['R_nom'], nn['xi'], yerr=nn['sigma_xi'],
                      fmt='o-', label='Type '+str(objtype))
-        
         
         for true_objtype in range(len(params['true_ranges'])):
             #"true" redshifts of true_objtype objects in test field
@@ -180,7 +184,9 @@ def main(args):
             both = float(len(set(ids).intersection(these_ids)))
             
             #probabilities of true/false assignment
-            P_mat[-1].append(both/float(len(ids)))
+            this_P = both/float(len(ids))
+            output_table['P{}{}'.format(objtype, true_objtype)] = this_P
+            P_mat[-1].append(this_P)
 
             #Run dNdMu with mu_G
             dNdMu_params = params
@@ -196,7 +202,9 @@ def main(args):
                 old += len(set(type_ids).intersection(detections[tabnum]['original matches']))
                 new += len(set(type_ids).intersection(detections[tabnum]['magnified matches']))
 
-            k_mat[-1].append(float(new-old) / (params['mu'] - 1.))
+            this_k = float(new-old) / (params['mu'] - 1.)
+            output_table['k{}{}'.format(objtype, true_objtype)] = this_k
+            k_mat[-1].append(this_k)
             
     plt.legend()
     plt.ylabel('xi')
@@ -211,8 +219,12 @@ def main(args):
     print "P = ", P_mat
     print "k = ", k_mat
 
-    mu = calcmu(n_vec, n0_vec, P_mat, k_mat)
-    print "mu = ", mu
+    print output_table
+
+    output_table.write(params['output']+'_output.fits')
+
+    #mu = calcmu(n_vec, n0_vec, P_mat, k_mat)
+    #print "mu = ", mu
 
 if __name__=="__main__":
     main(sys.argv)
