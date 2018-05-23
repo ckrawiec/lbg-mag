@@ -21,7 +21,14 @@ def parseconfigs(config_file):
     params['balrog_files'] = config.get('I/O','balrog_files')
     params['deep_output'] = config.get('I/O','deep_output')
     params['balrog_output'] = config.get('I/O','balrog_output')
-    params['overwrite_fits'] = config.getboolean('I/O','overwrite_fits')
+    if config.has_option('I/O', 'overwrite_type_files'):
+        params['overwrite_type_files'] = config.getboolean('I/O','overwrite_type_files')
+    else:
+        params['overwrite_type_files'] = True
+    if config.has_option('I/O', 'overwrite_corr_files'):
+        params['overwrite_corr_files'] = config.getboolean('I/O','overwrite_corr_files')
+    else:
+        params['overwrite_corr_files'] = True
     
     #Table Column Names
     params['zp_id_col'] = config.get('Columns','zp_id_column')
@@ -44,8 +51,8 @@ def parseconfigs(config_file):
     params['true_ranges'] = json.loads(config.get('Assignments','true_ranges'))
 
     #dNdMu
-    params['mu'] = config.get('dNdMu','mu')
-    params['flux_min'] = config.get('dNdMu','flux_min')
-    params['flux_max'] = config.get('dNdMu','flux_max')
+    params['mu'] = config.getfloat('dNdMu','mu')
+    params['flux_min'] = config.getfloat('dNdMu','flux_min')
+    params['flux_max'] = config.getfloat('dNdMu','flux_max')
 
     return params
