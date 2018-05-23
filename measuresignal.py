@@ -111,8 +111,8 @@ def main(args):
         
         #write type objects to table
         this_table = '{}_type{}.fits'.format(params['output'], objtype)
-        if params['overwrite_fits']:
-            objects.data[objects.types[objtype]].write(this_table)
+        
+        objects.data[objects.types[objtype]].write(this_table)
 
         random_table = '{}_type{}_randoms.fits'.format(params['output'], objtype)
         these_randoms = vstack([balrog[ti][objtype] for ti in balrog.keys()])

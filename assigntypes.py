@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.pyplot import cm
 
-def assignTypes(self, zindices, belows, aboves, check=True):
+def assignTypes(self, zindices, belows, aboves, check=False):
     color = cm.rainbow(np.linspace(0,1,len(zindices)+1))
         
     if check:
@@ -32,7 +32,7 @@ def assignTypes(self, zindices, belows, aboves, check=True):
                      '^', markeredgecolor='none', c=c, markersize=2.5,
                      label='type '+str(i))
 
-        print "Type {}: {} objects".format(i, len(data))
+        print "Type {}: {} objects".format(i, len(self.data[mask]))
                 
     if check:
         #save figure
