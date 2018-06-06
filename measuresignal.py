@@ -121,6 +121,7 @@ def main(args):
         
         #write/read type objects to/from table
         this_table = '{}_type{}.fits'.format(params['output'], objtype)
+
         random_table = '{}_type{}_randoms.fits'.format(params['output'], objtype)
         if params['overwrite_type_files']:
             this_data = objects.data[objects.types[objtype]]
@@ -219,9 +220,8 @@ def main(args):
     print "P = ", P_mat
     print "k = ", k_mat
 
-    print output_table
-
-    output_table.write(params['output']+'_output.fits')
+    output_tab = Table(output_table)
+    output_tab.write(params['output']+'_output.fits')
 
     #mu = calcmu(n_vec, n0_vec, P_mat, k_mat)
     #print "mu = ", mu

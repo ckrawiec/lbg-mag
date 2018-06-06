@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.pyplot import cm
 
-def assignTypes(self, zindices, belows, aboves, check=True):
+def assignTypes(self, zindices, belows, aboves, check=False):
     color = cm.rainbow(np.linspace(0,1,len(zindices)+1))
         
     if check:
