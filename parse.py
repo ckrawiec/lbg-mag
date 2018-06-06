@@ -18,7 +18,7 @@ def parseconfigs(config_file):
     params['test_data_file'] = config.get('I/O','test_data_file')
     params['output'] = config.get('I/O','output')
     params['deep_file'] = config.get('I/O','deep_file')
-    params['balrog_files'] = config.get('I/O','balrog_files')
+    params['balrog_truth_files'] = config.get('I/O','balrog_truth_files')
     params['deep_output'] = config.get('I/O','deep_output')
     params['balrog_output'] = config.get('I/O','balrog_output')
     if config.has_option('I/O', 'overwrite_type_files'):

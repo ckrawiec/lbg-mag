@@ -25,7 +25,7 @@ config['deep_type_column'] = 'MODEST_CLASS'
 #Type of object. 1 = galaxy. 2 = quasar. 3 = star.
 config['balrog_type_column'] = 'OBJTYPE'
 config['deep_file'] = '/Users/Christina/DES/data/y1a1_gold_dfull_cosmos.fits'
-config['balrog_files'] = '/Users/Christina/DES/data/balrog_sva1_tab*_TRUTH_zp_corr_fluxes.fits'
+config['balrog_truth_files'] = '/Users/Christina/DES/data/balrog_sva1_tab*_TRUTH_zp_corr_fluxes.fits'
 config['sim_file_format'] = '/Users/Christina/DES/data/balrog/sva1/balrog_sva1_auto_tab{}_SIM.fits'
 config['deep_flux_column'] = 'FLUX_AUTO_{}'
 config['deep_size_column'] = 'FLUX_RADIUS_I'
@@ -232,7 +232,7 @@ def main(args):
     #cycle over all truth tables
     truth_matches = {}
     tabnums = []
-    for table_name in glob.glob(params['balrog_files']):
+    for table_name in glob.glob(params['balrog_truth_files']):
         itab = table_name.find('tab')
         tabnum = table_name[itab+3:itab+5]
         tabnums.append(tabnum)
