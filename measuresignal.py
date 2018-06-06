@@ -220,9 +220,8 @@ def main(args):
     print "P = ", P_mat
     print "k = ", k_mat
 
-    print output_table
-
-    output_table.write(params['output']+'_output.fits')
+    output_tab = Table(output_table)
+    output_tab.write(params['output']+'_output.fits')
 
     #mu = calcmu(n_vec, n0_vec, P_mat, k_mat)
     #print "mu = ", mu

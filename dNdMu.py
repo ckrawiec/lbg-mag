@@ -217,12 +217,6 @@ def main(args):
                                      typeclass=1, calchlr=True,
                                      zrange=params['redshifts'], 
                                      magnify=True, mu=params['mu'])
-    print len(gals)
-    #h = plt.hist(gals, histtype='step', label='original',
-    #             bins=500, color=['b']*len(filters), normed=True)
-    #plt.hist(magnified_gals, histtype='step', label='magnified',
-    #         bins=h[1], color=['r']*len(filters), normed=True)
-    #plt.xlabel('vector elements')
     
     sys.stderr.write('Using {} galaxies.\n'.format(len(gals)))
     
