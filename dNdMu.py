@@ -5,6 +5,7 @@ import numpy as np
 import sys
 import time
 import glob
+import parse
 from astropy.io import fits
 from scipy.spatial import ckdtree
 from scipy.interpolate import griddata

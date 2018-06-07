@@ -37,57 +37,23 @@ def checkoutputs(params, outputs):
         sys.exit('Delete files or set overwrite=True. Exiting.\n')
 
     return params
-    
 
-def gatherdata(params):
-    #get all z-prob files
-    zp_files = glob.glob(params['zp_files'])
-    sys.stderr.write('Found {} z-prob files.\n'.format(len(zp_files)))
-    sys.stderr.write('Reading files...')
-    zp_tabs = [Table.read(zp_file) for zp_file in zp_files]
-    zp_tab = vstack(zp_tabs)
-    sys.stderr.write('Done.\n Found {} objects.\n'.format(len(zp_tab)))
-    
-    #create target and lens data objects
-    objects = DataSet(params['data_file'],
-                      zprobtab = zp_tab,
-                      idcol=params['zp_id_col'],
-                      output=params['output'],
-                      magcol='MAG_AUTO_{}')
-    
-    #assign types to objects from zprob_file based on their probabilities
-    objects.assignTypes(params['redshift_index'],
-                        params['below'], params['above'])
 
-    return objects
-
-def main(args):
+def main(config):
     #parse config file
-    params = parseconfigs(args[1])
+    params = parseconfigs(config)
 
     #check existence of output files from this code
     outputs = glob.glob('{}_type*.fits'.format(params['output']))
     params = checkoutputs(params, outputs)
 
-    #files from test region
-    DataSet.assignTypes = assignTypes
-    test = DataSet(params['test_data_file'],
-                   zprobtab=Table.read(params['test_zp_file']),
-                   idcol=params['test_data_id_col'],
-                   output=params['output']+'_test',
-                   zcol=params['test_z_col'],
-                   magcol='MAG_AUTO_{}_d10')
-
-    test.assignTypes(params['redshift_index'],
-                     params['below'], params['above'])
+    #get test and target objects and their assigned types
+    test_objects, target_objects = assigntypes.main(config)
     
-    #create data or read from existing files    
-    if params['overwrite_type_files']:
-        objects = gatherdata(params)
-
     #use balrogs as randoms for correlation function
     balrog = {}
-    for balrog_file in glob.glob(params['sim_file_format'].format('*')):
+    DataSet.assignTypes = assignTypes
+    for balrog_file in glob.glob(params['balrog_sim_file_format'].format('*')):
         itab = balrog_file.find('tab')
         tabnum = balrog_file[itab+3:itab+5]
         balrog_zp_files = glob.glob(params['balrog_zp_files'].format(tabnum))
@@ -103,7 +69,7 @@ def main(args):
                                   output=params['output']+'_balrog'+str(tabnum),
                                   magcol='MAG_AUTO_{}')
             this_balrog.assignTypes(params['redshift_index'],
-                                params['below'], params['above'])
+                                    params['below'], params['above'])
             balrog[tabnum] = {}
             for objtype in test.types:
                 balrog[tabnum][objtype] = this_balrog.data[this_balrog.types[objtype]]
@@ -227,6 +193,6 @@ def main(args):
     #print "mu = ", mu
 
 if __name__=="__main__":
-    main(sys.argv)
+    main(sys.argv[1])
 
 
