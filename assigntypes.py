@@ -54,26 +54,15 @@ def main(config):
     params = parse.parseconfigs(config)
     DataSet.assignTypes = assignTypes
 
-    #test region
-    test_objects = DataSet(params['test_data_file'],
-                   zpfiles = params['test_zp_file'],
-                   idcol=params['test_data_id_col'],
-                   output=params['output']+'_test',
-                   zcol=params['test_z_col'],
-                   magcol=params['test_mag_col'])
-
-    #target region
-    target_objects = DataSet(params['data_file'],
+    objects = DataSet(params['data_file'],
                       zpfiles = params['zp_files'],
                       idcol=params['zp_id_col'],
                       output=params['output'],
                       magcol='MAG_AUTO_{}')
     
     #assign types to objects from zprob_file based on their probabilities
-    test_objects.assignTypes(params['redshift_index'],
-                             params['below'], params['above'])
-    target_objects.assignTypes(params['redshift_index'],
-                               params['below'], params['above'])
+    objects.assignTypes(params['redshift_index'],
+                        params['below'], params['above'])
         
 if __name__=="__main__":
     main(sys.argv[1])
