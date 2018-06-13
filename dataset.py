@@ -1,6 +1,7 @@
 import numpy as np
 import sys
 import glob
+from scipy.spatial import ckdtree
 from astropy.io import fits
 from astropy.table import Table, vstack, join
 from myutils import joincorrecttype
@@ -59,3 +60,7 @@ class DataSet:
         #positions
         if racol and deccol:
             self.positions = zip(self.data[racol], self.data[deccol])
+
+    def initTree(self):
+        self.tree = ckdtree.cKDTree(self.positions)
+            
