@@ -11,7 +11,8 @@ def parseconfigs(config_file):
     params['zp_files'] = config.get('I/O','zp_files')
     params['source_file'] = config.get('I/O','source_file')
     params['lens_file'] = config.get('I/O','lens_file')
-    params['random_lens_file'] = config.get('I/O','random_lens_file')
+    params['random_file'] = config.get('I/O','random_file')
+    params['random_type'] = config.get('I/O','random_type')
     
     params['balrog_zp_files'] = config.get('I/O','balrog_zp_files')
     params['balrog_truth_files'] = config.get('I/O','balrog_truth_files')
@@ -24,15 +25,6 @@ def parseconfigs(config_file):
     params['deep_output'] = config.get('I/O','deep_output')
     params['balrog_output'] = config.get('I/O','balrog_output')
     params['output'] = config.get('I/O','output')
-    
-    if config.has_option('I/O', 'overwrite_type_files'):
-        params['overwrite_type_files'] = config.getboolean('I/O','overwrite_type_files')
-    else:
-        params['overwrite_type_files'] = True
-    if config.has_option('I/O', 'overwrite_corr_files'):
-        params['overwrite_corr_files'] = config.getboolean('I/O','overwrite_corr_files')
-    else:
-        params['overwrite_corr_files'] = True
     
     #Table Column Names
     params['zp_id_column'] = config.get('Columns','zp_id_column')
@@ -53,6 +45,7 @@ def parseconfigs(config_file):
     params['balrog_size_column'] = config.get('Columns','balrog_size_column')
 
     params['test_mag_column'] = config.get('Columns','test_mag_column')
+    params['balrog_sim_mag_column'] = config.get('Columns','balrog_sim_mag_column')
     
     #Assignment Criteria
     params['redshift_index'] = json.loads(config.get('Assignments','redshift_index'))
