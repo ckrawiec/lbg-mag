@@ -27,7 +27,7 @@ config['deep_type_column'] = 'MODEST_CLASS'
 config['balrog_type_column'] = 'OBJTYPE'
 config['deep_file'] = '/Users/Christina/DES/data/y1a1_gold_dfull_cosmos.fits'
 config['balrog_truth_files'] = '/Users/Christina/DES/data/balrog_sva1_tab*_TRUTH_zp_corr_fluxes.fits'
-config['sim_file_format'] = '/Users/Christina/DES/data/balrog/sva1/balrog_sva1_auto_tab{}_SIM.fits'
+config['balrog_sim_file_format'] = '/Users/Christina/DES/data/balrog/sva1/balrog_sva1_auto_tab{}_SIM.fits'
 config['deep_flux_column'] = 'FLUX_AUTO_{}'
 config['deep_size_column'] = 'FLUX_RADIUS_I'
 config['balrog_flux_column'] = 'FLUX_NOISELESS_{}'
@@ -272,7 +272,7 @@ def main(args):
     detections = {}
     for tabnum in tabnums:
         #open sim catalog
-        sim = fits.open(params['sim_file_format'].format(tabnum))[1].data
+        sim = fits.open(params['balrog_sim_file_format'].format(tabnum))[1].data
 
         #focus on this table number
         original_set  = np.where(original_best==tabnum)

@@ -14,7 +14,7 @@ from astropy.io import fits
 
 filters = 'GRIZ'
 
-def assignbalrog(params):
+def assignbalrog(params, tabnums):
     """
     Create dictionary of balrog tables and assigned types.
     Keys are table numbers.
@@ -22,13 +22,14 @@ def assignbalrog(params):
     """
     balrog = {}
     #loop over balrog sim files
-    for balrog_file in glob.glob(params['balrog_sim_file_format'].format('*')):
+    for tabnum in tabnums:
         #save table number
+        balrog_file = params['balrog_sim_file_format'].format(tabnum)
         itab = balrog_file.find('tab')
         tabnum = balrog_file[itab+3:itab+5]
 
         #gather zprob fies for this table
-        balrog_zp_files = glob.glob(params['balrog_zp_files'].format(tabnum))
+        balrog_zp_files = params['balrog_zp_files'].format(tabnum)
         this_balrog = DataSet(balrog_file,
                               zpfiles=balrog_zp_files,
                               idcol=params['balrog_id_column'],
@@ -57,26 +58,21 @@ def calcmu(n, n0, P, k):
     diff = n - np.dot(P, n0)
     return np.dot(diff, np.linalg.inv(k))
 
-def checkoutputs(params):
+def checkoutputs(params, tabnums):
     outputs_exist = {}
     objtypes = range(len(params['true_ranges']))
 
-    #check type outputs
+    #type outputs
     target_files = [os.path.exists('{}_targets_type{}.fits'.format(params['output'], objtype)) for objtype in objtypes]
     outputs_exist['target types'] = np.all(target_files)
 
     test_files = [os.path.exists('{}_test_type{}.fits'.format(params['output'], objtype)) for objtype in objtypes]
     outputs_exist['test types'] = np.all(test_files)
     
-    tabnums = []
-    for sim_file glob.glob(params['balrog_sim_file_format'].format('*')):
-        #save table number
-        itab = sim_file.find('tab')
-        tabnum.append(sim_file[itab+3:itab+5])
     base_output = params['output']+'_balrogsimtab{}_type{}.fits'
-    tabtypes_exists = np.all([[os.path.exists(base_output.format(tabnum, objtype) for tabnum in tabnums] for objtype in objtypes]])
-    types_exist = np.all(['{}_balrogsim_type{}.fits'.format(params['output'], objtype)] for objtype in objtypes)
-    outputs_exist['balrog types'] = tabtypes_exists & types_exist
+    tabtypes_exist = np.all([[os.path.exists(base_output.format(tabnum, objtype)) for tabnum in tabnums] for objtype in objtypes])
+    types_exist = np.all([os.path.exists('{}_balrogsim_type{}.fits'.format(params['output'], objtype)) for objtype in objtypes])
+    outputs_exist['balrog types'] = tabtypes_exist & types_exist
 
     #correlation outputs
     corr_output = params['output']+'_type{}_correlations.fits'
@@ -91,39 +87,48 @@ def main(config):
     params = parseconfigs(config)
 
     #check existence of output files from this code
-    outputs_exist = checkoutputs(params)
+    tabnums = []
+    for sim_file in glob.glob(params['balrog_sim_file_format'].format('*')):
+        #save table number
+        itab = sim_file.find('tab')
+        tabnums.append(sim_file[itab+3:itab+5])
+    outputs_exist = checkoutputs(params, tabnums)
 
     #get test and target objects and their assigned types
     DataSet.assignTypes = assignTypes
+
+    #need test DataSet later
+    test_objects = DataSet(params['test_data_file'],
+                           zpfiles=params['test_zp_file'],
+                           idcol=params['test_data_id_column'],
+                           output=params['output']+'_test',
+                           zcol=params['test_z_column'],
+                           magcol=params['test_mag_column'])
+    test_objects.assignTypes(params['redshift_index'],
+                             params['below'], params['above'])
     if not outputs_exist['test types']:
-        test_objects = DataSet(params['test_data_file'],
-                               zpfiles=params['test_zp_file'],
-                               idcol=params['test_data_id_col'],
-                               output=params['output']+'_test',
-                               zcol=params['test_z_col'],
-                               magcol=params['test_mag_col'])
-        test_objects.assignTypes()
         for objtype in test_objects.types:
             test_table = '{}_test_type{}.fits'.format(params['output'], objtype)
             test_data = test_objects.data[test_objects.types[objtype]]
-            test_data.write(data_table, overwrite=True)
-        
+            test_data.write(test_table, overwrite=True)
+
+    #targets
     if not outputs_exist['target types']:
-        target_objects = DataSet(params['data_file'],
+        target_objects = DataSet(params['source_file'],
                                  zpfiles = params['zp_files'],
-                                 idcol=params['zp_id_col'],
+                                 idcol=params['zp_id_column'],
                                  output=params['output'],
                                  magcol='MAG_AUTO_{}')
         target_objects.assignTypes(params['redshift_index'],
                                    params['below'], params['above'])
-        for objtype in objects.types:
+        for objtype in target_objects.types:
             target_table = '{}_targets_type{}.fits'.format(params['output'], objtype)
             target_data = target_objects.data[target_objects.types[objtype]]
             target_data.write(target_table, overwrite=True)
 
     #get balrog objects and their assigned types and write to file
     if not outputs_exist['balrog types']:
-        assignbalrog(params)
+        assignbalrog(params, tabnums)
 
     #measured quantities, vectors and matrices
     n_vec = []
@@ -134,15 +139,15 @@ def main(config):
     import dNdMu
 
     #test info needed for later
-    z_photo = test.data[test.zcol]
-    test_ids = test.data[test.idcol]
+    test_z = test_objects.data[test_objects.zcol]
+    test_ids = test_objects.data[test_objects.idcol]
     output_table = {}
     for objtype in range(len(params['true_ranges'])):
         sys.stderr.write('Working on type {}...\n'.format(objtype))
         
         #write/read type objects to/from table
         target_table = '{}_targets_type{}.fits'.format(params['output'], objtype)
-        random_table = '{}_balrogsim_type{}'.format(params['output'], objtype)
+        random_table = '{}_balrogsim_type{}.fits'.format(params['output'], objtype)
         targets = Table.read(target_table)
 
         Ps = ['P'+str(zrange) for zrange in getzgroups(targets.columns)]
@@ -158,45 +163,53 @@ def main(config):
             these_params['lens_file'] = params['lens_file'] 
             these_params['random_file'] = random_table
             these_params['random_type'] = 'source'
-            these_params['weight_column'] = Ps[objtype]
+            these_params['source_weight_column'] = Ps[objtype]
             these_params['output'] = params['output']+'_type'+str(objtype)
 
             nn = findpairs.main(these_params)
         else:
             nn = Table.read(corr_output)
 
+        print nn
         output_table['DD{}'.format(objtype)] = nn['DD']
         output_table['DR{}'.format(objtype)] = nn['DR']
-        output_table['DD_w{}'.format(objtype)] = nn['DD_w']
-        output_table['DR_w{}'.format(objtype)] = nn['DR_w']
+        if 'DD_w' in nn.columns:
+            output_table['DD_w{}'.format(objtype)] = nn['DD_w']
+        if 'DR_w' in nn.columns:
+            output_table['DR_w{}'.format(objtype)] = nn['DR_w']
         n_vec.append(nn['DD'])
-        n_weight_vec.append(nn['DD_w'])
         sys.stderr.write('Done.\n')
                 
         P_mat.append([])
         k_mat.append([])
 
         #needed for each objtype
-        type_photo_z = test.data[test.types[objtype]][test.zcol]
-        type_test_ids = test.data[test.types[objtype]][test.idcol]
-        type_balrog_ids = balrog[tabnum][objtype][params['balrog_id_column']]
+        type_test_z = test_z[test_objects.types[objtype]]
+        type_test_ids = test_ids[test_objects.types[objtype]]
+
+        #balrog ids for each table for this objtype
+        type_balrog_ids = {}
+        for tabnum in tabnums:
+            balrog_file = params['output']+'_balrogsimtab{}_type{}.fits'.format(tabnum, objtype)
+            balrog_tab = Table.read(balrog_file)
+            type_balrog_ids[tabnum] = balrog_tab[params['balrog_id_column']]
         
         for true_objtype in range(len(params['true_ranges'])):
             zmin = np.min(params['true_ranges'][true_objtype])
             zmax = np.max(params['true_ranges'][true_objtype])
 
             #truth redshifts from test data
-            true_z = np.where((z_photo >= zmin) & (z_photo <= zmax))
+            true_z = np.where((test_z >= zmin) & (test_z <= zmax))
 
             #ids of true_objtype objects
-            true_ids = test_ids[z_true]
+            true_ids = test_ids[true_z]
 
             #objtype objects whose truth redshifts match assignment
-            type_true_mask = np.where((type_photo_z >= zmin) & (type_photo_z <= zmax))
-            type_true_ids = type_ids[type_true_mask]
+            true_type_mask = np.where((type_test_z >= zmin) & (type_test_z <= zmax))
+            true_type_ids = type_test_ids[true_type_mask]
 
             #assigned to objtype while actually true_objtype
-            both = float(len(set(true_ids).intersection(type_true_ids)))
+            both = float(len(set(true_ids).intersection(true_type_ids)))
             
             #probabilities of true/false assignment
             P_HG = both/float(len(true_ids))
@@ -224,10 +237,13 @@ def main(config):
     print "P = ", P_mat
     print "k = ", k_mat
 
-    output_tab = Table(output_table)
-    output_tab.write(params['output']+'_output.fits')
+    #output_tab = Table(output_table)
+    #print output_tab
+    ######## need to fill in table columns
+    ######## need sum of n0 in all redshift ranges for ALL sources at each annulus
+    #output_tab.write(params['output']+'_output.fits')
 
-    mu = calcmu(n_vec, n0_vec, P_mat, k_mat)
+    #mu = calcmu(n_vec, n0_vec, P_mat, k_mat)
     print "mu = ", mu
 
 if __name__=="__main__":
