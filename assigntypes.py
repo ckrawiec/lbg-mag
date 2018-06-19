@@ -1,8 +1,14 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import parse
 from matplotlib.pyplot import cm
+from dataset import DataSet
 
 def assignTypes(self, zindices, belows, aboves, check=False):
+    """
+    Creates attribute self.types: a dictionary of masks
+    corresponding to each type described by the inputs.
+    """
     color = cm.rainbow(np.linspace(0,1,len(zindices)+1))
         
     if check:
@@ -44,4 +50,19 @@ def assignTypes(self, zindices, belows, aboves, check=False):
         plt.savefig(self.output+'_typecolors.png')
         plt.close()
 
+def main(config):
+    params = parse.parseconfigs(config)
+    DataSet.assignTypes = assignTypes
+
+    objects = DataSet(params['data_file'],
+                      zpfiles = params['zp_files'],
+                      idcol=params['zp_id_col'],
+                      output=params['output'],
+                      magcol='MAG_AUTO_{}')
     
+    #assign types to objects from zprob_file based on their probabilities
+    objects.assignTypes(params['redshift_index'],
+                        params['below'], params['above'])
+        
+if __name__=="__main__":
+    main(sys.argv[1])
