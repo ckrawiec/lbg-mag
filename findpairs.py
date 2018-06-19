@@ -192,7 +192,7 @@ log_file = {}""".format(params['source_file'],
     f.close()
 
     #run command
-    command = "corr2 "+config_file
+    command = "/home/ckrawiec/.local/bin/corr2 "+config_file
     print command
     subprocess.call(command.split(' '))
     results = Table.read(params['output']+'_treecorrNN.fits')
