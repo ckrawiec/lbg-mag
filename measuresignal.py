@@ -237,14 +237,11 @@ def main(config):
     print "P = ", P_mat
     print "k = ", k_mat
 
-    #output_tab = Table(output_table)
-    #print output_tab
-    ######## need to fill in table columns
     ######## need sum of n0 in all redshift ranges for ALL sources at each annulus
-    #output_tab.write(params['output']+'_output.fits')
+    np.save(params['output']+'_output.fits', output_table)
 
     #mu = calcmu(n_vec, n0_vec, P_mat, k_mat)
-    print "mu = ", mu
+    #print "mu = ", mu
 
 if __name__=="__main__":
     main(sys.argv[1])
