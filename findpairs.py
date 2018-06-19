@@ -1,167 +1,176 @@
 import numpy as np
-#import healpy as hp
 import time
 import sys
 import matplotlib.pyplot as plt
 import ConfigParser
 import subprocess
+import parse
 from scipy.spatial import ckdtree
 from astropy.io import fits
 from astropy.table import Table
-
-#randoms & MASKS
-#sources & redmagic randoms
+from dataset import DataSet
 
 #radii - same units as positions
-radii = np.logspace(np.log10(0.01), np.log10(0.8), 5)
-#np.logspace(-2, -1, 4)
+radii = np.logspace(np.log10(0.01), np.log10(0.05), 5)
 
-def parseconfig(config_file):
-    config = ConfigParser.SafeConfigParser()
-    config.read(config_file)
-
-    params = {}
-
-    #files
-    params['source_file'] = config.get('I/O','source_file')
-    params['lens_file']   = config.get('I/O','lens_file')
-    params['source_random_file'] = config.get('I/O','source_random_file')
-    params['lens_random_file']   = config.get('I/O','lens_random_file')
-    params['lens_weight_file']   = config.get('I/O','lens_weight_file')
-    params['output'] = config.get('I/O','output')
-
-    #data
-    params['source_ra']   = config.get('Columns', 'source_ra')
-    params['source_dec']  = config.get('Columns', 'source_dec')
-    params['lens_ra']     = config.get('Columns', 'lens_ra')
-    params['lens_dec']    = config.get('Columns', 'lens_dec')
-
-    #randoms
-    params['source_rand_ra']     = config.get('Columns', 'source_random_ra')
-    params['source_rand_dec']    = config.get('Columns', 'source_random_dec')
-    params['lens_rand_ra']       = config.get('Columns', 'lens_random_ra')
-    params['lens_rand_dec']      = config.get('Columns', 'lens_random_dec')
-
-    return params
-
-def countpairs(src, lns, rnd, n_chunk = 100):
+def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
     #radii in increasing order
-
-    pair_dict, rpair_dict = {}, {}
+    annuli = {}
     
     for ri in range(len(radii)):
+        annuli[radii[ri]] = {}
+        
         pairs, rpairs = 0, 0
         sys.stderr.write('    working on r={}\n'.format(radii[ri]))
-        
-        for ci in range(int(np.ceil(len(lns.positions)/float(n_chunk)))):
-            start = ci*n_chunk
-            end = ci*n_chunk+n_chunk
-            
-            pairs2  = src.tree.query_ball_point(lns.positions[start:end], r=radii[ri])
-            rpairs2 = rnd.tree.query_ball_point(lns.positions[start:end], r=radii[ri])
-            if ri==0:
-                pairs  += np.sum(len(np.hstack(pairs2)))
-                rpairs += np.sum(len(np.hstack(rpairs2)))
-            else:
-                pairs1  = src.tree.query_ball_point(lns.positions[start:end],
-                                                    r=radii[ri-1])
-                rpairs1 = rnd.tree.query_ball_point(lns.positions[start:end],
-                                                    r=radii[ri-1])
 
-                pairs  += np.sum(len(np.hstack(pairs2))) - np.sum(len(np.hstack(pairs1)))
-                rpairs += np.sum(len(np.hstack(rpairs2))) - np.sum(len(np.hstack(rpairs1)))
-
-        pair_dict[radii[ri]] = float(pairs)
-        rpair_dict[radii[ri]] = float(rpairs)
-
-    return pair_dict, rpair_dict
-
-def mycorr(params):
-        #read files
-        start_d = time.time()
-        sources   = DataSet(params['source_file'], params['source_ra'], params['source_dec'])
-        lenses    = DataSet(params['lens_file'], params['lens_ra'], params['lens_dec'])
-        rsources  = DataSet(params['source_random_file'], params['source_rand_ra'], params['source_rand_dec'])
-        
-        end_d = time.time()
-    
-        sys.stderr.write('Data initialized in {}s\n'.format(end_d-start_d))
-        
-        sys.stderr.write('Sources: {}\nLenses: {}\n'.format(len(sources.data), len(lenses.data)))
-
-        #make trees
+        #query_ball_tree
         start_tree = time.time()
-        sources.initTree()
-        rsources.initTree()
+        pairs2  = lns.tree.query_ball_tree(src.tree, r=radii[ri])
+        if rndtype == 'lens':
+            rpairs2 = rnd.tree.query_ball_tree(src.tree, r=radii[ri])
+        elif rndtype == 'source':
+            rpairs2 = lns.tree.query_ball_tree(rnd.tree, r=radii[ri])
+        else:
+            sys.stderr.write('Warning: random_type not specified correctly, using as lens randoms.\n')
+            rpairs2 = rnd.tree.query_ball_tree(src.tree, r=radii[ri])
         end_tree = time.time()
-        
-        sys.stderr.write('Trees created in {}s\n'.format(end_tree-start_tree))
-        
-        start_q = time.time()
-        
-        sys.stderr.write('Starting queries...\n')
-        
-        #for each radius, query for all sources around lenses
-        DD, DR = countpairs(sources, lenses, rsources)
-        
-        end_q = time.time()
-        
-        sys.stderr.write('Time for queries: {}s\n'.format(end_q-start_q))
-        
-        for k in DD.keys():
-            print 'r={}: {} source-lens pairs'.format(k, DD[k])
-            print '      {} random source-lens pairs'.format(DR[k])
-            
-        #plot pair counts
-        plt.scatter(DD.keys(), DD.values(), c='b', edgecolor='none', label='sources') 
-        plt.scatter(DR.keys(), DR.values(), c='r', edgecolor='none', label='random sources')
-    
-        plt.xscale('log')
-        plt.yscale('log')
-    
-        #Poisson errorbars
-        plt.errorbar(DD.keys(), DD.values(), yerr=np.sqrt(DD.values()), fmt='o')
-        plt.errorbar(DR.keys(), DR.values(), yerr=np.sqrt(DR.values()), c='r', fmt='o')
-        
-        output = params['output']+'_pairs.png'
-        plt.xlabel('r (deg)')
-        plt.ylabel('pairs')
-        plt.grid(which='both')
-        plt.legend(loc='best')
-        plt.savefig(output)
-        sys.stderr.write('Figure saved to {}\n'.format(output))
-        plt.close()
-    
-        #plot cross-correlations
-        ratio = float(len(rsources.data)) / len(sources.data)
+        sys.stderr.write('    query completed in {}s.\n'.format(end_tree-start_tree))
 
-        w = [np.array(DD[k])/np.array(DR[k]) * ratio - 1 for k in DD.keys()]
+        p2int = [[int(pp) for pp in p] for p in pairs2]
+        rp2int = [[int(rpp) for rpp in rp] for rp in rpairs2]
+        if ri==0:
+            pairs  += np.sum(len(np.hstack(p2int)))
+            rpairs += np.sum(len(np.hstack(rp2int)))
+
+            indices = p2int
+            rindices = rp2int
+        else:
+            pairs1  = lns.tree.query_ball_tree(src.tree, r=radii[ri-1])
+            if rndtype == 'lens':
+                rpairs1 = rnd.tree.query_ball_tree(src.tree, r=radii[ri-1])
+            elif rndtype == 'source':
+                rpairs1 = lns.tree.query_ball_tree(rnd.tree, r=radii[ri-1])
+            else:
+                sys.stderr.write('Warning: random_type not specified correctly, using as lens randoms.\n')
+                rpairs1 = rnd.tree.query_ball_tree(src.tree, r=radii[ri-1])
+
+            p1int = [[int(pp) for pp in p] for p in pairs1]
+            rp1int = [[int(rpp) for rpp in rp] for rp in rpairs1]
+            
+            pairs  += np.sum(len(np.hstack(p2int))) - np.sum(len(np.hstack(p1int)))
+            rpairs += np.sum(len(np.hstack(rp2int))) - np.sum(len(np.hstack(rp1int)))
+
+            indices = [list(set(i2)-set(i1)) for i1,i2 in zip(p1int, p2int)]
+            rindices = [list(set(j2)-set(j1)) for j1,j2 in zip(rp1int, rp2int)]
+            
+        #save pairs, and as sum P[indices]
+        annuli[radii[ri]]['srcpairs'] = float(pairs)
+        annuli[radii[ri]]['rndpairs'] = float(rpairs)
+        if srcweights is not None:
+            annuli[radii[ri]]['Psrcsum'] = np.sum(srcweights[[int(i) for i in np.hstack(indices)]])
+        if rndweights is not None:
+            annuli[radii[ri]]['Prndsum'] = np.sum(rndweights[[int(j) for j in np.hstack(rindices)]])
+
+    return annuli
+
+def mycorr(sources, lenses, randoms, output, random_type='lens', srcweights=None, rndweights=None):
+    sys.stdout.write('\n    Sources: {}\n    Lenses: {}\n'.format(len(sources.data), len(lenses.data)))
+    sys.stdout.flush()
+
+    if random_type=='lens':
+        other_type = 'source'
+        ratio = float(len(randoms.data)) / len(lenses.data)
+    elif random_type=='source':
+        other_type = 'lens'
+        ratio = float(len(randoms.data)) / len(sources.data)
+        
+    #make trees
+    start_tree = time.time()
+    sources.initTree()
+    lenses.initTree()
+    randoms.initTree()
+    end_tree = time.time()
+        
+    sys.stderr.write('    Trees created in {}s.\n'.format(end_tree-start_tree))       
+    start_q = time.time()
+    sys.stderr.write('    Starting queries...\n')
+        
+    #for each radius, query for all sources around lenses
+    annuli = countpairs(sources, lenses, randoms, rndtype=random_type, srcweights=srcweights, rndweights=rndweights)
+    sys.stderr.write('    Done.\n')
+    end_q = time.time()
+        
+    sys.stdout.write('    Time for pair queries: {}s.\n'.format(end_q-start_q))
+        
+    for k in np.sort(annuli.keys()):
+        print '    r={}: {} source-lens pairs'.format(k, annuli[k]['srcpairs'])
+        print '          {} {}-random {} pairs'.format(annuli[k]['rndpairs'],
+                                                       other_type,
+                                                       random_type)
+            
+    #plot pair counts
+    r = np.sort(annuli.keys())
+    DD = np.array([annuli[k]['srcpairs'] for k in r])
+    DR = np.array([annuli[k]['rndpairs'] for k in r])
+    plt.plot(r, DD, 'o-', c='b', markeredgecolor='none', label='sources/lenses') 
+    plt.plot(r, DR, 'o-', c='r', markeredgecolor='none', label='sources/randoms')
+    plt.xscale('log')
+    plt.yscale('log')
     
-        plt.scatter(DD.keys(), w,
-                    c='b', edgecolor='none')
-        plt.xscale('log')
+    #Poisson errorbars
+    plt.errorbar(r, DD, yerr=np.sqrt(DD), fmt='o-')
+    plt.errorbar(r, DR, yerr=np.sqrt(DR), c='r', fmt='o-')
+
+    #save results to table
+    tab = Table()
+    tab['R'] = r
+    tab['DD'] = DD
+    tab['DR'] = DR
         
-        #Poisson errorbars
-        plt.errorbar(DD.keys(), w, yerr=1./np.sqrt(DD.values()), fmt='o')
+    if srcweights is not None:
+        DD_w = np.array([annuli[k]['Psrcsum'] for k in r])
+        tab['DD_w'] = DD_w
+        plt.plot(r, DD_w, 'o-',
+                 c='c', markeredgecolor='none', label='sources/lenses, weighted')
+    if rndweights is not None:
+        DR_w = np.array([annuli[k]['Prndsum'] for k in r])
+        tab['DR_w'] = DR_w
+        plt.plot(r, DR_w, 'o-',
+                 c='m', markeredgecolor='none', label='sources/randoms, weighted') 
         
-        plt.xlabel('r (deg)')
-        plt.ylabel('w')
-        
-        output = params['output']+'_correlations.png'
-        plt.grid(which='both')
-        plt.savefig(output)
-        sys.stderr.write('Figure saved to {}\n'.format(output))
-        plt.close()
+    output_pairs = output+'_pairs.png'
+    plt.xlabel('r (deg)')
+    plt.ylabel('pairs')
+    plt.grid(which='both')
+    plt.legend(loc='best')
+    plt.savefig(output_pairs)
+    sys.stdout.write('    Pairs figure saved to {}\n'.format(output_pairs))
+    plt.close()
     
-        tab = Table()
-        tab['R'] = DD.keys()
-        tab['w'] = w
-        tab['DD'] = DD.values()
-        tab['DR'] = [DR[k] for k in DD.keys()]
-        tab.write(params['output']+'.fits')
+    #plot cross-correlations
+    w = np.array(DD)/np.array(DR) * ratio - 1
+    tab['w'] = w
+    plt.scatter(r, w, c='b', edgecolor='none')
+    plt.xscale('log')
+    
+    #Poisson errorbars
+    plt.errorbar(r, w, yerr=1./np.sqrt(DD), fmt='o-')
+    plt.xlabel('r (deg)')
+    plt.ylabel('w')
+    output_corr = output+'_correlations.png'
+    plt.grid(which='both')
+    plt.savefig(output_corr)
+    sys.stdout.write('    Correlation figure saved to {}\n'.format(output_corr))
+    plt.close()
+    
+    output_fits = output+'_correlations.fits'
+    sys.stdout.write('    Writing correlation results to {}.\n'.format(output_fits))
+    tab.write(output_fits)
+
+    sys.stdout.flush()
+    return tab
 
 def treecorr(params, units='degrees'):
-    #without command line?
     #command = corr2 config
     #source/lens ra/dec column names must match
     config_file = params['output']+"_treecorr.params"
@@ -197,43 +206,38 @@ log_file = {}""".format(params['source_file'],
     subprocess.call(command.split(' '))
     results = Table.read(params['output']+'_treecorrNN.fits')
     return results
+        
+def main(params):
+    #read files
+    sys.stdout.write('Calculating correlations with sources from {}.\n'.format(params['source_file']))
+    sys.stdout.write('                              lenses from {}.\n'.format(params['lens_file']))
+    sys.stdout.write('                              randoms ({}) from {}.\n'.format(params['random_type'],
+                                                                                    params['random_file']))
+    sources   = DataSet(params['source_file'], racol='RA', deccol='DEC')
+    lenses    = DataSet(params['lens_file'], racol='RA', deccol='DEC')
+    randoms  = DataSet(params['random_file'], racol='RA', deccol='DEC')
 
-class DataSet:
-    def __init__(self, data_file, x_col, y_col, weight_file=None):
-        self.data = fits.open(data_file)[1].data
-        self.positions = np.array(zip(self.data[x_col] * np.cos(self.data[y_col]*np.pi/180.),
-                                      self.data[y_col]))
-
-        if weight_file:
-            self.weights = self.getFrac(weight_file, x_col, y_col)
+    if 'source_weight_column' in params:
+        srcweights = sources.data[params['source_weight_column']]
+        if params['random_type']=='source':
+            rndweights = randoms.data[params['source_weight_column']]
         else:
-            self.weights = np.ones(len(self.data))
+            rndweights = None
+    else:
+        srcweights = None
+        rndweights = None
 
-    def initTree(self):
-        self.tree = ckdtree.cKDTree(self.positions)
+    corrtab = mycorr(sources, lenses, randoms, params['output'],
+                     random_type=params['random_type'],
+                     srcweights=srcweights,
+                     rndweights=rndweights)
 
-    def getFrac(self, tab_file, ra_col, dec_col):
-        hpmap = hp.read_map(tab_file, nest=True)
-        nside = hp.npix2nside(hpmap.size)
+    #treecorr(params)
+
+    return corrtab
     
-        theta = (90.0 - self.data[dec_col])*np.pi/180.
-        phi = self.data[ra_col]*np.pi/180.
-        pix = hp.ang2pix(nside, theta, phi, nest=True)
-        
-        return hpmap[pix]
-        
-def main():
-    params = parseconfig('findpairs.config')
-
-    ###Use real distances
-    ###might make slower, can map/change coordinates
-
-    mycorr(params)
-
-    treecorr(params)
-    
-        
 
 if __name__=="__main__":
-    main()
+    params = parse.parseconfigs(sys.argv[1])
+    main(params)
     
