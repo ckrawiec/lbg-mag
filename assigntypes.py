@@ -4,7 +4,7 @@ import parse
 from matplotlib.pyplot import cm
 from dataset import DataSet
 
-def assignTypes(self, zindices, belows, aboves, check=False):
+def assignTypes(self, zindices, belows, aboves, check=True):
     """
     Creates attribute self.types: a dictionary of masks
     corresponding to each type described by the inputs.
