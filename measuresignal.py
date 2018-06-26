@@ -229,6 +229,7 @@ def main(config):
                 new += len(set(type_balrog_ids).intersection(detections[tabnum]['magnified matches']))
 
             k_HG = float(new-old) / (params['mu'] - 1.)
+            output_table['k_{}{}_output'.format(objtype, true_objtype)] = k
             output_table['k_{}{}'.format(objtype, true_objtype)] = k_HG
             k_mat[-1].append(k_HG)
 
