@@ -11,7 +11,7 @@ from astropy.table import Table
 from dataset import DataSet
 
 #radii - same units as positions
-radii = np.logspace(np.log10(0.01), np.log10(0.05), 5)
+radii = np.logspace(np.log10(0.01), np.log10(0.8), 6)
 
 def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
     #radii in increasing order
