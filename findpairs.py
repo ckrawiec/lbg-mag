@@ -24,56 +24,68 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
         sys.stderr.write('    working on r={}\n'.format(radii[ri]))
 
         #query_ball_tree
-        start_tree = time.time()
-        pairs2  = lns.tree.query_ball_tree(src.tree, r=radii[ri])
-        if rndtype == 'lens':
-            rpairs2 = rnd.tree.query_ball_tree(src.tree, r=radii[ri])
-        elif rndtype == 'source':
-            rpairs2 = lns.tree.query_ball_tree(rnd.tree, r=radii[ri])
-        else:
-            sys.stderr.write('Warning: random_type not specified correctly, using as lens randoms.\n')
-            rpairs2 = rnd.tree.query_ball_tree(src.tree, r=radii[ri])
-        end_tree = time.time()
-        sys.stderr.write('    query completed in {}s.\n'.format(end_tree-start_tree))
+        pairs1, pairs2, rpairs1, rpairs2 = [], []
 
-        p2int = [[int(pp) for pp in p] for p in pairs2]
-        rp2int = [[int(rpp) for rpp in rp] for rp in rpairs2]
-        if ri==0:
-            pairs  += np.sum(len(np.hstack(p2int)))
-            rpairs += np.sum(len(np.hstack(rp2int)))
-
-            indices = p2int
-            rindices = rp2int
-        else:
-            pairs1  = lns.tree.query_ball_tree(src.tree, r=radii[ri-1])
+        n_chunks = 4
+        chunks = [lns.tree.data[i:i+nchunks] for i in xrange(0, len(lns.tree.data), n_chunks)]
+        for chunk in chunks:
+            start_tree = time.time()
+            lns_chunk = ckdtree.cKDTree(chunk)
+            pairs2.append(lns_chunk.query_ball_tree(src.tree, r=radii[ri]))
             if rndtype == 'lens':
-                rpairs1 = rnd.tree.query_ball_tree(src.tree, r=radii[ri-1])
+                #not right
+                #rpairs2.append(rnd.tree.query_ball_tree(src.tree, r=radii[ri]))
             elif rndtype == 'source':
-                rpairs1 = lns.tree.query_ball_tree(rnd.tree, r=radii[ri-1])
+                rpairs2.append(lns_chunk.query_ball_tree(rnd.tree, r=radii[ri]))
             else:
                 sys.stderr.write('Warning: random_type not specified correctly, using as lens randoms.\n')
-                rpairs1 = rnd.tree.query_ball_tree(src.tree, r=radii[ri-1])
+                #rpairs2.append(rnd.tree.query_ball_tree(src.tree, r=radii[ri]))
+            end_tree = time.time()
+            sys.stderr.write('    query completed in {}s.\n'.format(end_tree-start_tree))
 
-            p1int = [[int(pp) for pp in p] for p in pairs1]
-            rp1int = [[int(rpp) for rpp in rp] for rp in rpairs1]
-            
-            pairs  += np.sum(len(np.hstack(p2int))) - np.sum(len(np.hstack(p1int)))
-            rpairs += np.sum(len(np.hstack(rp2int))) - np.sum(len(np.hstack(rp1int)))
+            if ri!=0:
+                pairs1.append(lns_chunk.query_ball_tree(src.tree, r=radii[ri-1]))
+                if rndtype == 'lens':
+                    #not right
+                    #rpairs1.append(rnd.tree.query_ball_tree(src.tree, r=radii[ri-1]))
+                elif rndtype == 'source':
+                    rpairs1.append(lns_chunk.query_ball_tree(rnd.tree, r=radii[ri-1]))
+                else:
+                    sys.stderr.write('Warning: random_type not specified correctly, using as lens randoms.\n')
+                    #rpairs1.append(rnd.tree.query_ball_tree(src.tree, r=radii[ri-1]))
 
-            indices = [list(set(i2)-set(i1)) for i1,i2 in zip(p1int, p2int)]
-            rindices = [list(set(j2)-set(j1)) for j1,j2 in zip(rp1int, rp2int)]
-            
+        #list of lists = len(lns.tree.data)
+        p2stack = np.hstack(pairs2)
+        rp2stack = np.hstack(rpairs2)
+        if ri==0:
+            pairs  += len(np.hstack(p2stack))
+            rpairs += len(np.hstack(rp2stack))
+    
+            indices = [int(i) for i in np.hstack(p2stack)]
+            rindices = [int(j) for j in np.hstack(rp2stack)]
+
+        else:
+            p1stack = np.hstack(pairs1)
+            rp1stack = np.hstack(rpairs1)
+
+            pairs  += len(np.hstack(p2stack)) - len(np.hstack(p1stack))
+            rpairs += len(np.hstack(rp2stack)) - len(np.hstack(rp1stack))
+
+            indices = [int(i) for i in np.hstack([list(set(i2)-set(i1)) for i1,i2 in zip(p1stack, p2stack)])]
+            rindices = [int(j) for j in np.hstack([list(set(j2)-set(j1)) for j1,j2 in zip(rp1stack, rp2stack)])]
+    
         #save pairs, and as sum P[indices]
         annuli[radii[ri]]['srcpairs'] = float(pairs)
         annuli[radii[ri]]['rndpairs'] = float(rpairs)
         if srcweights is not None:
-            annuli[radii[ri]]['Psrcsum'] = np.sum(srcweights[[int(i) for i in np.hstack(indices)]])
+            annuli[radii[ri]]['Psrcsum'] = np.sum(srcweights[indices])
         if rndweights is not None:
-            annuli[radii[ri]]['Prndsum'] = np.sum(rndweights[[int(j) for j in np.hstack(rindices)]])
+            annuli[radii[ri]]['Prndsum'] = np.sum(rndweights[rindices])
 
     return annuli
 
-def mycorr(sources, lenses, randoms, output, random_type='lens', srcweights=None, rndweights=None):
+def mycorr(sources, lenses, randoms, output,
+           random_type='lens', srcweights=None, rndweights=None):
     sys.stdout.write('\n    Sources: {}\n    Lenses: {}\n'.format(len(sources.data), len(lenses.data)))
     sys.stdout.flush()
 
@@ -123,6 +135,9 @@ def mycorr(sources, lenses, randoms, output, random_type='lens', srcweights=None
 
     #save results to table
     tab = Table()
+    tab['N_lens'] = [len(lenses.data)] * len(r)
+    tab['N_source'] = [len(sources.data)] * len(r)
+    tab['N_random'] = [len(randoms.data)] * len(r)
     tab['R'] = r
     tab['DD'] = DD
     tab['DR'] = DR
@@ -136,7 +151,10 @@ def mycorr(sources, lenses, randoms, output, random_type='lens', srcweights=None
         DR_w = np.array([annuli[k]['Prndsum'] for k in r])
         tab['DR_w'] = DR_w
         plt.plot(r, DR_w, 'o-',
-                 c='m', markeredgecolor='none', label='sources/randoms, weighted') 
+                 c='m', markeredgecolor='none', label='sources/randoms, weighted')
+    if (srcweights is not None) and (rndweights is not None):
+         w_w = np.array(DD_w)/np.array(DR_w) * ratio - 1
+         tab['w_w'] = w_w
         
     output_pairs = output+'_pairs.png'
     plt.xlabel('r (deg)')
