@@ -24,15 +24,16 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
         sys.stderr.write('    working on r={}\n'.format(radii[ri]))
 
         #query_ball_tree
-        pairs1, pairs2, rpairs1, rpairs2 = [], []
+        pairs1, pairs2, rpairs1, rpairs2 = [], [], [], []
 
         n_chunks = 4
-        chunks = [lns.tree.data[i:i+nchunks] for i in xrange(0, len(lns.tree.data), n_chunks)]
+        chunks = [lns.data[i:i+n_chunks] for i in xrange(0, len(lns.tree.data), n_chunks)]
         for chunk in chunks:
             start_tree = time.time()
-            lns_chunk = ckdtree.cKDTree(chunk)
+            lns_chunk = ckdtree.cKDTree(zip(chunk['RA'], chunk['DEC']))
             pairs2.append(lns_chunk.query_ball_tree(src.tree, r=radii[ri]))
             if rndtype == 'lens':
+                continue
                 #not right
                 #rpairs2.append(rnd.tree.query_ball_tree(src.tree, r=radii[ri]))
             elif rndtype == 'source':
@@ -46,6 +47,7 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
             if ri!=0:
                 pairs1.append(lns_chunk.query_ball_tree(src.tree, r=radii[ri-1]))
                 if rndtype == 'lens':
+                    continue
                     #not right
                     #rpairs1.append(rnd.tree.query_ball_tree(src.tree, r=radii[ri-1]))
                 elif rndtype == 'source':
@@ -55,8 +57,10 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
                     #rpairs1.append(rnd.tree.query_ball_tree(src.tree, r=radii[ri-1]))
 
         #list of lists = len(lns.tree.data)
-        p2stack = np.hstack(pairs2)
-        rp2stack = np.hstack(rpairs2)
+        #where and any are used to get rid of empty lists so hstack plays nice
+        print pairs2
+        p2stack = np.hstack(np.array(pairs2)[np.where(np.any(pairs2))])
+        rp2stack = np.hstack(np.array(rpairs2)[np.where(np.any(rpairs2))])
         if ri==0:
             pairs  += len(np.hstack(p2stack))
             rpairs += len(np.hstack(rp2stack))
@@ -65,8 +69,8 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
             rindices = [int(j) for j in np.hstack(rp2stack)]
 
         else:
-            p1stack = np.hstack(pairs1)
-            rp1stack = np.hstack(rpairs1)
+            p1stack = np.hstack(np.array(pairs1)[np.where(np.any(pairs1))])
+            rp1stack = np.hstack(np.array(rpairs1)[np.where(np.any(rpairs1))])
 
             pairs  += len(np.hstack(p2stack)) - len(np.hstack(p1stack))
             rpairs += len(np.hstack(rp2stack)) - len(np.hstack(rp1stack))
