@@ -26,8 +26,8 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
         #query_ball_tree
         pairs1, pairs2, rpairs1, rpairs2 = [], [], [], []
 
-        n_chunks = 4
-        chunks = [lns.data[i:i+n_chunks] for i in xrange(0, len(lns.tree.data), n_chunks)]
+        chunk_size = 500000
+        chunks = [lns.data[i:i+chunk_size] for i in xrange(0, len(lns.data), chunk_size)]
         for chunk in chunks:
             start_tree = time.time()
             lns_chunk = ckdtree.cKDTree(zip(chunk['RA'], chunk['DEC']))
