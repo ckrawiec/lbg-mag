@@ -26,7 +26,7 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
         #query_ball_tree
         pairs1, pairs2, rpairs1, rpairs2 = [], [], [], []
 
-        chunk_size = 500000
+        chunk_size = 10000
         chunks = [lns.data[i:i+chunk_size] for i in xrange(0, len(lns.data), chunk_size)]
         for chunk in chunks:
             start_tree = time.time()
@@ -58,9 +58,8 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
 
         #list of lists = len(lns.tree.data)
         #where and any are used to get rid of empty lists so hstack plays nice
-        print pairs2
-        p2stack = np.hstack(np.array(pairs2)[np.where(np.any(pairs2))])
-        rp2stack = np.hstack(np.array(rpairs2)[np.where(np.any(rpairs2))])
+        p2stack = np.hstack(pairs2)
+        rp2stack = np.hstack(rpairs2)
         if ri==0:
             pairs  += len(np.hstack(p2stack))
             rpairs += len(np.hstack(rp2stack))
@@ -69,8 +68,8 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
             rindices = [int(j) for j in np.hstack(rp2stack)]
 
         else:
-            p1stack = np.hstack(np.array(pairs1)[np.where(np.any(pairs1))])
-            rp1stack = np.hstack(np.array(rpairs1)[np.where(np.any(rpairs1))])
+            p1stack = np.hstack(pairs1)
+            rp1stack = np.hstack(rpairs1)
 
             pairs  += len(np.hstack(p2stack)) - len(np.hstack(p1stack))
             rpairs += len(np.hstack(rp2stack)) - len(np.hstack(rp1stack))
