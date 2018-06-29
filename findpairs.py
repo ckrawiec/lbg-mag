@@ -60,22 +60,29 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
         #where and any are used to get rid of empty lists so hstack plays nice
         p2stack = np.hstack(pairs2)
         rp2stack = np.hstack(rpairs2)
+
+        #save memory
+        del pairs2, rpairs2
+
         if ri==0:
-            pairs  += len(np.hstack(p2stack))
-            rpairs += len(np.hstack(rp2stack))
-    
+            pairs  += np.sum((len(item) for item in p2stack))
             indices = [int(i) for i in np.hstack(p2stack)]
+            
+            rpairs += np.sum((len(item) for item in rp2stack))
             rindices = [int(j) for j in np.hstack(rp2stack)]
 
         else:
             p1stack = np.hstack(pairs1)
             rp1stack = np.hstack(rpairs1)
+            del pairs1, rpairs1
 
-            pairs  += len(np.hstack(p2stack)) - len(np.hstack(p1stack))
-            rpairs += len(np.hstack(rp2stack)) - len(np.hstack(rp1stack))
-
+            pairs  += np.sum((len(item) for item in p2stack)) - np.sum((len(item) for item in p1stack))
             indices = [int(i) for i in np.hstack([list(set(i2)-set(i1)) for i1,i2 in zip(p1stack, p2stack)])]
+            del p1stack, p2stack
+            
+            rpairs += np.sum((len(item) for item in rp2stack)) - np.sum((len(item) for item in rp1stack))
             rindices = [int(j) for j in np.hstack([list(set(j2)-set(j1)) for j1,j2 in zip(rp1stack, rp2stack)])]
+            del rp1stack, rp2stack
     
         #save pairs, and as sum P[indices]
         annuli[radii[ri]]['srcpairs'] = float(pairs)
