@@ -239,7 +239,7 @@ def main(config):
     print "k = ", k_mat
 
     ######## need sum of n0 in all redshift ranges for ALL sources at each annulus
-    np.save(params['output']+'_output.fits', output_table)
+    np.save(params['output']+'_output.npy', output_table)
 
     #mu = calcmu(n_vec, n0_vec, P_mat, k_mat)
     #print "mu = ", mu
