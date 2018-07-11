@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import ConfigParser
 import subprocess
 import parse
+import itertools
 from scipy.spatial import ckdtree
 from astropy.io import fits
 from astropy.table import Table
@@ -28,13 +29,18 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
         sys.stderr.write('    working on r={}\n'.format(radii[ri]))
 
         #query_ball_tree
-        chunk_size = 10000
-        chunks = (src.data[i:i+chunk_size] for i in xrange(0, len(src.data), chunk_size))
-        chunk_indices = (range(len(src.data))[i:i+chunk_size] for i in xrange(0, len(src.data), chunk_size))
+        chunks = 1000
+        src_chunk_size = int(np.ceil(float(len(src.data))/chunks))
+        rnd_chunk_size = int(np.ceil(float(len(rnd.data))/chunks))
+        src_chunks = (src.data[i:i+src_chunk_size] for i in xrange(0, len(src.data), src_chunk_size))
+        src_chunk_indices = (list(range(len(src.data))[i:i+src_chunk_size]) for i in xrange(0, len(src.data), src_chunk_size))
+        rnd_chunks = (rnd.data[i:i+rnd_chunk_size] for i in xrange(0, len(rnd.data), rnd_chunk_size))
+        rnd_chunk_indices = (list(range(len(rnd.data))[i:i+rnd_chunk_size]) for i in xrange(0, len(rnd.data), rnd_chunk_size))
 
-        for chunk in chunks:
+        for schunk, rchunk, schunk_index, rchunk_index in itertools.izip(src_chunks, rnd_chunks,
+                                                                         src_chunk_indices, rnd_chunk_indices):
             start_tree = time.time()
-            src_chunk = ckdtree.cKDTree(zip(chunk['RA'], chunk['DEC']))
+            src_chunk = ckdtree.cKDTree(zip(schunk['RA'], schunk['DEC']))
             pairs2 = lns.tree.query_ball_tree(src_chunk, r=radii[ri])
             
             if rndtype == 'lens':
@@ -42,7 +48,8 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
                 #not right
                 #rpairs2.append(rnd.tree.query_ball_tree(src.tree, r=radii[ri]))
             elif rndtype == 'source':
-                rpairs2 = lns.tree.query_ball_tree(rnd.tree, r=radii[ri]))
+                rnd_chunk = ckdtree.cKDTree(zip(rchunk['RA'], rchunk['DEC']))
+                rpairs2 = lns.tree.query_ball_tree(rnd_chunk, r=radii[ri])
             else:
                 sys.stderr.write('Warning: random_type not specified correctly, using as lens randoms.\n')
                 #rpairs2.append(rnd.tree.query_ball_tree(src.tree, r=radii[ri]))
@@ -53,14 +60,14 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
                 pairs1 = lns.tree.query_ball_tree(src_chunk, r=radii[ri-1])
                 pairs += np.sum((len(item) for item in pairs2)) - \
                          np.sum((len(item) for item in pairs1))
-                indices = [int(i) for i in np.hstack([list(set(i2)-set(i1)) for i1,i2 in zip(pairs1, pairs2]])]
+                indices = [int(i) for i in np.hstack([list(set(i2)-set(i1)) for i1,i2 in zip(pairs1, pairs2)])]
 
                 if rndtype == 'lens':
                     continue
                     #not right
                     #rpairs1.append(rnd.tree.query_ball_tree(src.tree, r=radii[ri-1]))
                 elif rndtype == 'source':
-                    rpairs1 = lns.tree.query_ball_tree(rnd.tree, r=radii[ri-1])
+                    rpairs1 = lns.tree.query_ball_tree(rnd_chunk, r=radii[ri-1])
                 else:
                     sys.stderr.write('Warning: random_type not specified correctly, using as lens randoms.\n')
                     #rpairs1.append(rnd.tree.query_ball_tree(src.tree, r=radii[ri-1]))
@@ -73,12 +80,12 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
                 indices = [int(i) for i in np.hstack(pairs2)]
             
                 rpairs += np.sum((len(item) for item in rpairs2))
-                rindices = [int(j) for j in np.hstack(rp2stack)]
+                rindices = [int(j) for j in np.hstack(rpairs2)]
 
             if srcweights is not None:
-                annuli[radii[ri]]['Psrcsum'] += np.sum(srcweights[chunk_indices][indices])
+                annuli[radii[ri]]['Psrcsum'] += np.sum(srcweights[schunk_index][indices])
             if rndweights is not None:
-                annuli[radii[ri]]['Prndsum'] += np.sum(rndweights[chunk_indices][rindices])
+                annuli[radii[ri]]['Prndsum'] += np.sum(rndweights[rchunk_index][rindices])
     
         #save pairs, and as sum P[indices]
         annuli[radii[ri]]['srcpairs'] = float(pairs)
