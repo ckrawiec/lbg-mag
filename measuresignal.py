@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import sys
 import glob
 import os
+import pickle
 from dataset import DataSet, getzgroups
 from assigntypes import assignTypes
 from parse import parseconfigs
@@ -238,8 +239,12 @@ def main(config):
     print "P = ", P_mat
     print "k = ", k_mat
 
+    for key in output_table.keys():
+        print "{}: {}".format(key, output_table[key])
+
     ######## need sum of n0 in all redshift ranges for ALL sources at each annulus
-    np.save(params['output']+'_output.npy', output_table)
+    f = open(params['output']+'_output.pkl','wb')
+    pickle.dump(output_table, f)
 
     #mu = calcmu(n_vec, n0_vec, P_mat, k_mat)
     #print "mu = ", mu
