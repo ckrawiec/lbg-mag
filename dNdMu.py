@@ -17,29 +17,36 @@ logs = False
 filters = 'GRIZ'
 gridfile = '/Users/Christina/DES/data/balrog/sva1/balrog_tab01_avg_star_fluxradiusi_0.1deg.fits'
 
-#built-in params
 config = {}
 config['filters'] = 'GRIZ'
 config['mu'] = 1.1
 config['flux_min'] = 0.
-config['deep_type_column'] = 'MODEST_CLASS'
+config['flux_max'] = 500000.
+config['redshifts'] = [-100, 100]
+ 
+#built-in params
 #Type of object. 1 = galaxy. 2 = quasar. 3 = star.
+config['deep_type_column'] = 'MODEST_CLASS'
 config['balrog_type_column'] = 'OBJTYPE'
-config['deep_file'] = '/Users/Christina/DES/data/y1a1_gold_dfull_cosmos.fits'
+
+#sim files
 config['balrog_truth_files'] = '/Users/Christina/DES/data/balrog_sva1_tab*_TRUTH_zp_corr_fluxes.fits'
 config['balrog_sim_file_format'] = '/Users/Christina/DES/data/balrog/sva1/balrog_sva1_auto_tab{}_SIM.fits'
-config['deep_flux_column'] = 'FLUX_AUTO_{}'
-config['deep_size_column'] = 'FLUX_RADIUS_I'
 config['balrog_flux_column'] = 'FLUX_NOISELESS_{}'
 config['balrog_size_column'] = 'HALFLIGHTRADIUS_0'
-config['redshifts'] = [-100, 100]
-config['deep_output'] = 'builtin_dNdMu_deep'
+config['balrog_id_column'] = 'BALROG_INDEX'
 config['balrog_output'] = 'builtin_dNdMu_truth'
 
-def createVecs(self, fluxmin, fluxmax,
-               sizecut,
-               typeclass=None,
-               zrange=[], calchlr=False,
+#deep file
+config['deep_file'] = '/Users/Christina/DES/data/y1a1_gold_dfull_cosmos.fits'
+config['deep_flux_column'] = 'FLUX_AUTO_{}'
+config['deep_size_column'] = 'FLUX_RADIUS_I'
+config['deep_z_column'] = 'ZMINCHI2'
+config['deep_output'] = 'builtin_dNdMu_deep'
+
+
+def createVecs(self, fluxmin, fluxmax, sizecut,
+               typeclass=None, zrange=[], calchlr=False,
                magnify=False, mu=1.):
         
     #cut out low fluxes and unrealistic sizes
@@ -53,7 +60,7 @@ def createVecs(self, fluxmin, fluxmax,
 
         new_data = new_data[flux_mask]
 
-    sys.stderr.write("Data has {} objects after flux cut.\n".format(len(new_data)))
+    sys.stderr.write("    Data has {} objects after flux cut ({}, {}).\n".format(len(new_data), fluxmin, fluxmax))
         
     if logs:
         #flux vectors
@@ -64,6 +71,8 @@ def createVecs(self, fluxmin, fluxmax,
     if sizes:
         mask = np.where(new_data[self.sizecol]>sizecut)
         new_data = new_data[mask]
+        sys.stderr.write("    Data has {} objects after size cut (>{}).\n".format(len(new_data),
+                                                                                  sizecut))
         data_vecs = data_vecs[mask]
         if calchlr:
             stars = new_data[new_data['MODEST_CLASS']==2]
@@ -92,28 +101,29 @@ def createVecs(self, fluxmin, fluxmax,
         mask = new_data[self.typecol]==typeclass
         new_data = new_data[mask]
         data_vecs = np.array(data_vecs)[mask]
-        sys.stderr.write("Data has {} objects after class cut.\n".format(len(new_data)))
+        sys.stderr.write("    Data has {} objects after class cut ({}={}).\n".format(len(new_data),
+                                                                                     self.typecol,
+                                                                                     typeclass))
         
     if magnify:
         zrange = np.array(zrange)
         zmask = np.array((new_data[self.zcol]>zrange.min()) & (new_data[self.zcol]<zrange.max()))
-        
-        if logs:
-            ###THESE ARE WRONG
-            factor = np.array([(1. + np.log10(mu)/data_vecs[zmask])] * len(filters))
-        else:
-            factor = np.array([mu]*len(filters))
-        
-        if sizes:
-            #add magnified sizes to magnified data vector
-            if logs:
-                factor.append(0.5 * np.log10(mu)/mu + 1.)
-            else:
-                factor.append(np.sqrt(mu))
-                
+
         if len(data_vecs[zmask]) > 0:
-            new_vecs = np.product([np.array(data_vecs)[zmask], factor])
-            data_vecs[zmask] = new_vecs
+            if logs:
+                factor = [np.log10(mu)] * len(filters)
+                if sizes:
+                    #add magnified sizes to magnified data vector
+                    factor.append(0.5 * np.log10(mu))
+                new_vecs = np.array(data_vecs)[zmask] + np.array(factor)
+                data_vecs[zmask] = new_vecs
+            else:
+                factor = [mu]*len(filters)
+                if sizes:
+                    #add magnified sizes to magnified data vector
+                    factor.append(np.sqrt(mu))
+                new_vecs = np.array(factor) * np.array(data_vecs)[zmask]
+                data_vecs[zmask] = new_vecs
             
     return np.array(data_vecs)
 
@@ -210,13 +220,12 @@ def main(args):
         exit()
         
     #separate galaxies using MODEST_CLASS
-    gals = data.createVecs(params['flux_min'], params['flux_max'],
-                           0.,
+    sys.stderr.write('Creating galaxy data...\n')
+    gals = data.createVecs(params['flux_min'], params['flux_max'], 0.,
                            typeclass=1, calchlr=True)
-    magnified_gals = data.createVecs(params['flux_min'], params['flux_max'],
-                                     0.,
-                                     typeclass=1, calchlr=True,
-                                     zrange=params['redshifts'], 
+    sys.stderr.write('Creating magnified galaxy data...\n')
+    magnified_gals = data.createVecs(params['flux_min'], params['flux_max'], 0.,
+                                     typeclass=1, calchlr=True, zrange=params['redshifts'], 
                                      magnify=True, mu=params['mu'])
     
     sys.stderr.write('Using {} galaxies.\n'.format(len(gals)))
@@ -242,8 +251,6 @@ def main(args):
                         typecol=params['balrog_type_column'])
         truth_vecs = truth.createVecs(params['flux_min'], params['flux_max'], 0., typeclass=1)
         sys.stderr.write('using {} galaxies...'.format(len(truth_vecs)))
-        #plt.hist(truth_vecs, histtype='step', label= 'balrog',
-        #         color=['g']*len(filters), bins=h[1], normed=True)
 
         #find matches
         original_matches  = findmatches(truth_vecs, gals)
@@ -255,9 +262,6 @@ def main(args):
                                  'original radius': original_matches['radius'],
                                  'magnified radius': magnified_matches['radius']}
         sys.stderr.write('Done.\n')
-    #plt.legend(loc='best')
-    #plt.savefig(data.output+'_data_vector_hist.png')
-    #plt.close()
     
     #find closest match for each object among all tables
     original_radii  = zip(*[truth_matches[key]['original radius'] for key in truth_matches.keys()])

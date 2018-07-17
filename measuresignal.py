@@ -238,6 +238,9 @@ def main(config):
     print "P = ", P_mat
     print "k = ", k_mat
 
+    for key in output_table.keys():
+        print "{}: {}".format(key, output_table[key])
+
     ######## need sum of n0 in all redshift ranges for ALL sources at each annulus
     np.save(params['output']+'_output.npy', output_table)
 
