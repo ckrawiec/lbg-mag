@@ -137,6 +137,10 @@ def main(config):
     k_mat = []
     
     import dNdMu
+    #Run dNdMu with mu_G
+    dNdMu_params = params
+    dNdMu_params['redshifts'] = [[zmin, zmax] for zmin, zmax in params['true_ranges']]
+    k, detections = dNdMu.main(dNdMu_params)
 
     #test info needed for later
     test_z = test_objects.data[test_objects.zcol]
@@ -171,12 +175,6 @@ def main(config):
             nn = Table.read(corr_output)
 
         print nn
-        output_table['DD{}'.format(objtype)] = nn['DD']
-        output_table['DR{}'.format(objtype)] = nn['DR']
-        if 'DD_w' in nn.columns:
-            output_table['DD_w{}'.format(objtype)] = nn['DD_w']
-        if 'DR_w' in nn.columns:
-            output_table['DR_w{}'.format(objtype)] = nn['DR_w']
         n_vec.append(nn['DD'])
         sys.stderr.write('Done.\n')
                 
@@ -216,20 +214,16 @@ def main(config):
             output_table['P_{}{}'.format(objtype, true_objtype)] = P_HG
             P_mat[-1].append(P_HG)
 
-            #Run dNdMu with mu_G
-            dNdMu_params = params
-            dNdMu_params['redshifts'] = [zmin, zmax]
-            k, detections = dNdMu.main(dNdMu_params)       
-
             #for each table, find change in detected number for this objtype
             old, new = 0, 0
             for tabnum in detections.keys():
                 #are objtype objects in detections?
-                old += len(set(type_balrog_ids).intersection(detections[tabnum]['original matches']))
-                new += len(set(type_balrog_ids).intersection(detections[tabnum]['magnified matches']))
+                old += len(set(type_balrog_ids).intersection(set(detections[tabnum]['original matches'])))
+                new += len(set(type_balrog_ids).intersection(set(detections[tabnum]['magnified matches'])))
 
-            k_HG = float(new-old) / (params['mu'] - 1.)
-            output_table['k_{}{}_output'.format(objtype, true_objtype)] = k
+            print "True type {} original/magnified matches: {}, {}".format(true_objtype, old, new)
+            k_HG = (float(new)-float(old)) / (params['mu'] - 1.)
+            output_table['k_{}_output'.format(true_objtype)] = k
             output_table['k_{}{}'.format(objtype, true_objtype)] = k_HG
             k_mat[-1].append(k_HG)
 

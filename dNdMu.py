@@ -22,7 +22,7 @@ config['filters'] = 'GRIZ'
 config['mu'] = 1.1
 config['flux_min'] = 0.
 config['flux_max'] = 500000.
-config['redshifts'] = [-100, 100]
+config['redshifts'] = [[-100, 100], [0., 1.0]]
  
 #built-in params
 #Type of object. 1 = galaxy. 2 = quasar. 3 = star.
@@ -194,6 +194,38 @@ def gethlr(self, gals, stars, sizecol='FLUX_RADIUS_I'):
     sys.stderr.write('Done.\n')
     return gal_hlr
 
+def matchtruth(params, gals, magnifiedgals):
+    #cycle over all truth tables
+    truth_matches = {}
+    tabnums = []
+    for table_name in glob.glob(params['balrog_truth_files']):
+        itab = table_name.find('tab')
+        tabnum = table_name[itab+3:itab+5]
+        tabnums.append(tabnum)
+        sys.stderr.write('Working on balrog table {}...'.format(tabnum))
+
+        #open tables, get flux and/or size data vectors
+        truth = DataSet(table_name,
+                        output=params['balrog_output'],
+                        fluxcol=params['balrog_flux_column'],
+                        sizecol=params['balrog_size_column'],
+                        idcol=params['balrog_id_column'],
+                        typecol=params['balrog_type_column'])
+        truth_vecs = truth.createVecs(params['flux_min'], params['flux_max'], 0., typeclass=1)
+        sys.stderr.write('using {} galaxies...'.format(len(truth_vecs)))
+
+        #find matches
+        original_matches  = findmatches(truth_vecs, gals)
+        magnified_matches = findmatches(truth_vecs, magnifiedgals)
+
+        #get balrog indices to match to sim tables later
+        truth_matches[tabnum] = {'original id': truth.data[truth.idcol][original_matches['index']],
+                                 'magnified id': truth.data[truth.idcol][magnified_matches['index']],
+                                 'original radius': original_matches['radius'],
+                                 'magnified radius': magnified_matches['radius']}
+        sys.stderr.write('Done.\n')
+    return truth_matches, tabnums
+    
 def main(args):
     DataSet.createVecs = createVecs
     
@@ -223,87 +255,65 @@ def main(args):
     sys.stderr.write('Creating galaxy data...\n')
     gals = data.createVecs(params['flux_min'], params['flux_max'], 0.,
                            typeclass=1, calchlr=True)
-    sys.stderr.write('Creating magnified galaxy data...\n')
-    magnified_gals = data.createVecs(params['flux_min'], params['flux_max'], 0.,
-                                     typeclass=1, calchlr=True, zrange=params['redshifts'], 
-                                     magnify=True, mu=params['mu'])
     
     sys.stderr.write('Using {} galaxies.\n'.format(len(gals)))
     
     #indices of galaxy data
     ids = list(range(len(gals)))
 
-    #cycle over all truth tables
-    truth_matches = {}
-    tabnums = []
-    for table_name in glob.glob(params['balrog_truth_files']):
-        itab = table_name.find('tab')
-        tabnum = table_name[itab+3:itab+5]
-        tabnums.append(tabnum)
-        sys.stderr.write('Working on balrog table {}...'.format(tabnum))
+    k, detections = {}, {}
+    for m in range(len(params['redshifts'])):
+        sys.stderr.write('Creating magnified galaxy data (z={})...\n'.format(params['redshifts'][m]))
+        magnified_gals = data.createVecs(params['flux_min'], params['flux_max'], 0.,
+                                         typeclass=1, calchlr=True, zrange=params['redshifts'][m], 
+                                         magnify=True, mu=params['mu'])
+        truth_matches, tabnums = matchtruth(params, gals, magnified_gals)
 
-        #open tables, get flux and/or size data vectors
-        truth = DataSet(table_name,
-                        output=params['balrog_output'],
-                        fluxcol=params['balrog_flux_column'],
-                        sizecol=params['balrog_size_column'],
-                        idcol=params['balrog_id_column'],
-                        typecol=params['balrog_type_column'])
-        truth_vecs = truth.createVecs(params['flux_min'], params['flux_max'], 0., typeclass=1)
-        sys.stderr.write('using {} galaxies...'.format(len(truth_vecs)))
+        #find closest match for each object among all tables
+        original_radii  = zip(*[truth_matches[key]['original radius'] for key in truth_matches.keys()])
+        magnified_radii = zip(*[truth_matches[key]['magnified radius'] for key in truth_matches.keys()])
+        original_arg  = np.argmin(original_radii, axis=1)
+        magnified_arg = np.argmin(magnified_radii, axis=1)
+        original_best  = np.array(truth_matches.keys())[original_arg]
+        magnified_best = np.array(truth_matches.keys())[magnified_arg]
 
-        #find matches
-        original_matches  = findmatches(truth_vecs, gals)
-        magnified_matches = findmatches(truth_vecs, magnified_gals)
-
-        #get balrog indices to match to sim tables later
-        truth_matches[tabnum] = {'original id': truth.data[truth.idcol][original_matches['index']],
-                                 'magnified id': truth.data[truth.idcol][magnified_matches['index']],
-                                 'original radius': original_matches['radius'],
-                                 'magnified radius': magnified_matches['radius']}
-        sys.stderr.write('Done.\n')
+        #save numbers of detections
+        original_detections, magnified_detections = 0, 0
+        detections[str(params['redshifts'][m])] = {}
+        for tabnum in tabnums:
+            #open sim catalog
+            sim = fits.open(params['balrog_sim_file_format'].format(tabnum))[1].data
     
-    #find closest match for each object among all tables
-    original_radii  = zip(*[truth_matches[key]['original radius'] for key in truth_matches.keys()])
-    magnified_radii = zip(*[truth_matches[key]['magnified radius'] for key in truth_matches.keys()])
-    original_arg  = np.argmin(original_radii, axis=1)
-    magnified_arg = np.argmin(magnified_radii, axis=1)
-    original_best  = np.array(truth_matches.keys())[original_arg]
-    magnified_best = np.array(truth_matches.keys())[magnified_arg]
-
-    #save numbers of detections
-    original_detections, magnified_detections = 0, 0
-    detections = {}
-    for tabnum in tabnums:
-        #open sim catalog
-        sim = fits.open(params['balrog_sim_file_format'].format(tabnum))[1].data
-
-        #focus on this table number
-        original_set  = np.where(original_best==tabnum)
-        magnified_set = np.where(magnified_best==tabnum)
+            #focus on this table number
+            original_set  = np.where(original_best==tabnum)
+            magnified_set = np.where(magnified_best==tabnum)
+            
+            #count objects that are found (detected) in sim catalog
+            sys.stderr.write('Working on sim table {}...'.format(tabnum))
+            sys.stderr.write('checking for detections...')
+    
+            #detected objects whose truth fluxes match original set
+            truth_ids = truth_matches[tabnum]['original id'][original_set]
+            original_match_ids = set(sim['BALROG_INDEX']).intersection(truth_ids)
+            original_detections += len(original_match_ids)
+            
+            #detected objects whose truth fluxes match magnified set
+            truth_ids = truth_matches[tabnum]['magnified id'][magnified_set]
+            magnified_match_ids = set(sim['BALROG_INDEX']).intersection(truth_ids)
+            magnified_detections += len(magnified_match_ids)
+            detections[str(params['redshifts'][m])][tabnum] = {'original matches' : original_match_ids,
+                                                               'magnified matches': magnified_match_ids}
+            sys.stderr.write('Done.\n\n')
         
-        #count objects that are found (detected) in sim catalog
-        sys.stderr.write('Working on sim table {}...'.format(tabnum))
-        sys.stderr.write('checking for detections...')
+        #report information
+        print "Detected original matches: {}".format(original_detections)
+        print "Detected magnified matches: {}".format(magnified_detections)
 
-        #detected objects whose truth fluxes match original set
-        truth_ids = truth_matches[tabnum]['original id'][original_set]
-        original_match_ids = set(sim['BALROG_INDEX']).intersection(truth_ids)
-        original_detections += len(original_match_ids)
-        
-        #detected objects whose truth fluxes match magnified set
-        truth_ids = truth_matches[tabnum]['magnified id'][magnified_set]
-        magnified_match_ids = set(sim['BALROG_INDEX']).intersection(truth_ids)
-        magnified_detections += len(magnified_match_ids)
-        detections[tabnum] = {'original matches' : original_match_ids,
-                              'magnified matches' : magnified_match_ids}
-        sys.stderr.write('Done.\n')
-        
-    #report information
-    print "Detected original matches: {}".format(original_detections)
-    print "Detected magnified matches: {}".format(magnified_detections)
+        k[str(params['redshifts'][m])] = float(magnified_detections - original_detections) / (params['mu'] - 1.)
 
-    k = float(magnified_detections - original_detections) / (params['mu'] - 1.)
+    for key in k.keys():
+        print "z={}, dNdmu={}".format(key, k[key])
+
     return k, detections
 
 
