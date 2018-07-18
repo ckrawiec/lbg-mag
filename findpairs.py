@@ -29,7 +29,7 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
         sys.stderr.write('    working on r={}\n'.format(radii[ri]))
 
         #query_ball_tree
-        chunks = 1000
+        chunks = 500
         src_chunk_size = int(np.ceil(float(len(src.data))/chunks))
         rnd_chunk_size = int(np.ceil(float(len(rnd.data))/chunks))
         src_chunks = (src.data[i:i+src_chunk_size] for i in xrange(0, len(src.data), src_chunk_size))
@@ -37,10 +37,9 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
         rnd_chunks = (rnd.data[i:i+rnd_chunk_size] for i in xrange(0, len(rnd.data), rnd_chunk_size))
         rnd_chunk_indices = (list(range(len(rnd.data))[i:i+rnd_chunk_size]) for i in xrange(0, len(rnd.data), rnd_chunk_size))
 
-        for schunk, rchunk, schunk_index, rchunk_index in itertools.izip(src_chunks, rnd_chunks,
-                                                                         src_chunk_indices, rnd_chunk_indices):
+        for ichunk in range(len(src_chunks)):
             start_tree = time.time()
-            src_chunk = ckdtree.cKDTree(zip(schunk['RA'], schunk['DEC']))
+            src_chunk = ckdtree.cKDTree(zip(src_chunks[ichunk]['RA'], src_chunks[ichunk]['DEC']))
             pairs2 = lns.tree.query_ball_tree(src_chunk, r=radii[ri])
             
             if rndtype == 'lens':
@@ -48,7 +47,7 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
                 #not right
                 #rpairs2.append(rnd.tree.query_ball_tree(src.tree, r=radii[ri]))
             elif rndtype == 'source':
-                rnd_chunk = ckdtree.cKDTree(zip(rchunk['RA'], rchunk['DEC']))
+                rnd_chunk = ckdtree.cKDTree(zip(rnd_chunks[ichunk]['RA'], rnd_chunks[ichunk]['DEC']))
                 rpairs2 = lns.tree.query_ball_tree(rnd_chunk, r=radii[ri])
             else:
                 sys.stderr.write('Warning: random_type not specified correctly, using as lens randoms.\n')
@@ -72,8 +71,9 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
                     sys.stderr.write('Warning: random_type not specified correctly, using as lens randoms.\n')
                     #rpairs1.append(rnd.tree.query_ball_tree(src.tree, r=radii[ri-1]))
 
-                rpairs += np.sum((len(item) for item in rpairs2)) - np.sum((len(item) for item in rpairs1))
-                rindices = [int(j) for j in np.hstack([list(set(j2)-set(j1)) for j1,j2 in zip(rpairs2, rpairs2)])]                
+                rpairs += np.sum((len(item) for item in rpairs2)) - \
+                          np.sum((len(item) for item in rpairs1))
+                rindices = [int(j) for j in np.hstack([list(set(j2)-set(j1)) for j1,j2 in zip(rpairs1, rpairs2)])]                
 
             else:
                 pairs  += np.sum((len(item) for item in pairs2))
@@ -83,15 +83,14 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
                 rindices = [int(j) for j in np.hstack(rpairs2)]
 
             if srcweights is not None:
-                annuli[radii[ri]]['Psrcsum'] += np.sum(srcweights[schunk_index][indices])
+                annuli[radii[ri]]['Psrcsum'] += np.sum(srcweights[src_chunk_indices][ichunk][indices])
             if rndweights is not None:
-                annuli[radii[ri]]['Prndsum'] += np.sum(rndweights[rchunk_index][rindices])
+                annuli[radii[ri]]['Prndsum'] += np.sum(rndweights[rnd_chunk_indices][ichunk][rindices])
     
         #save pairs, and as sum P[indices]
         annuli[radii[ri]]['srcpairs'] = float(pairs)
         annuli[radii[ri]]['rndpairs'] = float(rpairs)
         
-
     return annuli
 
 def mycorr(sources, lenses, randoms, output,
