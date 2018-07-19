@@ -37,7 +37,7 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
         rnd_chunks = (rnd.data[i:i+rnd_chunk_size] for i in xrange(0, len(rnd.data), rnd_chunk_size))
         rnd_chunk_indices = (list(range(len(rnd.data))[i:i+rnd_chunk_size]) for i in xrange(0, len(rnd.data), rnd_chunk_size))
 
-        for ichunk in range(len(src_chunks)):
+        for ichunk in range(chunks):
             start_tree = time.time()
             src_chunk = ckdtree.cKDTree(zip(src_chunks[ichunk]['RA'], src_chunks[ichunk]['DEC']))
             pairs2 = lns.tree.query_ball_tree(src_chunk, r=radii[ri])
