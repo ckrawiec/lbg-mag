@@ -29,19 +29,45 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
         sys.stderr.write('    working on r={}\n'.format(radii[ri]))
 
         #query_ball_tree
-        chunks = 500
+        chunks = 2000
         src_chunk_size = int(np.ceil(float(len(src.data))/chunks))
         rnd_chunk_size = int(np.ceil(float(len(rnd.data))/chunks))
+
+        #do sources first
         src_chunks = [zip(src.data['RA'], src.data['DEC'])[i:i+src_chunk_size] for i in xrange(0, len(src.data), src_chunk_size)]
         src_chunk_indices = [list(range(len(src.data))[i:i+src_chunk_size]) for i in xrange(0, len(src.data), src_chunk_size)]
-        rnd_chunks = [zip(rnd.data['RA'], rnd.data['DEC'])[i:i+rnd_chunk_size] for i in xrange(0, len(rnd.data), rnd_chunk_size)]
-        rnd_chunk_indices = [list(range(len(rnd.data))[i:i+rnd_chunk_size]) for i in xrange(0, len(rnd.data), rnd_chunk_size)]
-
+        query_time = 0
         for ichunk in range(chunks):
             start_tree = time.time()
             src_chunk = ckdtree.cKDTree(src_chunks[ichunk])
             pairs2 = lns.tree.query_ball_tree(src_chunk, r=radii[ri])
             
+            end_tree = time.time()
+            query_time += end_tree - start_tree
+
+            if ri!=0:
+                pairs1 = lns.tree.query_ball_tree(src_chunk, r=radii[ri-1])
+                pairs += np.sum((len(item) for item in pairs2)) - \
+                         np.sum((len(item) for item in pairs1))
+                indices = [int(i) for i in np.hstack([list(set(i2)-set(i1)) for i1,i2 in zip(pairs1, pairs2)])]
+            else:
+                pairs  += np.sum((len(item) for item in pairs2))
+                indices = [int(i) for i in np.hstack(pairs2)]
+
+            if srcweights is not None:
+                annuli[radii[ri]]['Psrcsum'] += np.sum(srcweights[src_chunk_indices[ichunk]][indices])
+
+        sys.stderr.write('    source queries completed in {}s.\n'.format(query_time))
+        del src_chunks, src_chunk_indices
+
+        #now do randoms
+        rnd_chunks = [zip(rnd.data['RA'], rnd.data['DEC'])[i:i+rnd_chunk_size] \
+                      for i in xrange(0, len(rnd.data), rnd_chunk_size)]
+        rnd_chunk_indices = [list(range(len(rnd.data))[i:i+rnd_chunk_size]) \
+                             for i in xrange(0, len(rnd.data), rnd_chunk_size)]
+        query_time = 0
+        for ichunk in range(chunks):
+            start_tree = time.time()
             if rndtype == 'lens':
                 continue
                 #not right
@@ -52,15 +78,7 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
             else:
                 sys.stderr.write('Warning: random_type not specified correctly, using as lens randoms.\n')
                 #rpairs2.append(rnd.tree.query_ball_tree(src.tree, r=radii[ri]))
-            end_tree = time.time()
-            sys.stderr.write('    query completed in {}s.\n'.format(end_tree-start_tree))
-
             if ri!=0:
-                pairs1 = lns.tree.query_ball_tree(src_chunk, r=radii[ri-1])
-                pairs += np.sum((len(item) for item in pairs2)) - \
-                         np.sum((len(item) for item in pairs1))
-                indices = [int(i) for i in np.hstack([list(set(i2)-set(i1)) for i1,i2 in zip(pairs1, pairs2)])]
-
                 if rndtype == 'lens':
                     continue
                     #not right
@@ -70,27 +88,26 @@ def countpairs(src, lns, rnd, rndtype='lens', srcweights=None, rndweights=None):
                 else:
                     sys.stderr.write('Warning: random_type not specified correctly, using as lens randoms.\n')
                     #rpairs1.append(rnd.tree.query_ball_tree(src.tree, r=radii[ri-1]))
-
+                    
                 rpairs += np.sum((len(item) for item in rpairs2)) - \
                           np.sum((len(item) for item in rpairs1))
-                rindices = [int(j) for j in np.hstack([list(set(j2)-set(j1)) for j1,j2 in zip(rpairs1, rpairs2)])]                
-
+                rindices = [int(j) for j in np.hstack([list(set(j2)-set(j1)) for j1,j2 in zip(rpairs1, rpairs2)])]
             else:
-                pairs  += np.sum((len(item) for item in pairs2))
-                indices = [int(i) for i in np.hstack(pairs2)]
-            
                 rpairs += np.sum((len(item) for item in rpairs2))
                 rindices = [int(j) for j in np.hstack(rpairs2)]
 
-            if srcweights is not None:
-                annuli[radii[ri]]['Psrcsum'] += np.sum(srcweights[src_chunk_indices[ichunk]][indices])
+            query_time += time.time() - start_tree
+
             if rndweights is not None:
                 annuli[radii[ri]]['Prndsum'] += np.sum(rndweights[rnd_chunk_indices[ichunk]][rindices])
-    
+
+        sys.stderr.write('    random queries completed in {}s.\n'.format(query_time))
+        del rnd_chunks, rnd_chunk_indices
+
         #save pairs, and as sum P[indices]
         annuli[radii[ri]]['srcpairs'] = float(pairs)
         annuli[radii[ri]]['rndpairs'] = float(rpairs)
-        
+
     return annuli
 
 def mycorr(sources, lenses, randoms, output,
