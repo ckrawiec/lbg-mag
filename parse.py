@@ -6,8 +6,9 @@ def parseconfigs(config_file):
     config.read(config_file)
 
     params = {}
-
+    
     #Input & Output Files
+    params['num_threads'] = config.get('I/O','num_threads')
     params['zp_files'] = config.get('I/O','zp_files')
     params['source_file'] = config.get('I/O','source_file')
     params['lens_file'] = config.get('I/O','lens_file')
