@@ -164,6 +164,7 @@ def main(config):
         if  not os.path.exists(corr_output):
             #for each type - create parameters for treecorr 
             these_params = {}
+            these_params['num_threads'] = params['num_threads']
             these_params['source_file'] = target_table
             these_params['lens_file'] = params['lens_file'] 
             these_params['random_file'] = random_table

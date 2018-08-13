@@ -16,27 +16,28 @@ from multiprocessing import Pool
 #radii - same units as positions
 radii = np.logspace(np.log10(0.01), np.log10(0.8), 6)
 
-def chunkcount(ri, dataset, weights=None, nchunks=1000):
-    chunk_size = int(np.ceil(float(len(dataset.data))/nchunks))
-    chunks = [zip(dataset.data['RA'], dataset.data['DEC'])[i:i+chunk_size] \
-              for i in xrange(0, len(dataset.data), chunk_size)]
-    chunk_indices = [list(range(len(dataset.data))[i:i+chunk_size]) \
-                     for i in xrange(0, len(dataset.data), chunk_size)]
+def chunkcount(ri, lns, data, weights):
+    nchunks = 1000
+    chunk_size = int(np.ceil(float(len(data))/nchunks))
+    chunks = (zip(data['RA'], data['DEC'])[i:i+chunk_size] \
+              for i in xrange(0, len(data), chunk_size))
+    chunk_indices = (list(range(len(data))[i:i+chunk_size]) \
+                     for i in xrange(0, len(data), chunk_size))
 
     pairs, rpairs = 0, 0
                      
     #query_ball_tree
     query_time = 0
-    for ichunk in range(nchunks):
+    for chunk, chunk_index in itertools.izip(chunks, chunk_indices):
         start_tree = time.time()
-        chunk = ckdtree.cKDTree(chunks[ichunk])
-        pairs2 = lns.tree.query_ball_tree(chunk, r=radii[ri])
+        tree = ckdtree.cKDTree(chunk)
+        pairs2 = lns.tree.query_ball_tree(tree, r=radii[ri])
             
         end_tree = time.time()
         query_time += end_tree - start_tree
 
         if ri!=0:
-            pairs1 = lns.tree.query_ball_tree(chunk, r=radii[ri-1])
+            pairs1 = lns.tree.query_ball_tree(tree, r=radii[ri-1])
             pairs += np.sum((len(item) for item in pairs2)) - \
                      np.sum((len(item) for item in pairs1))
             indices = [int(i) for i in np.hstack([list(set(i2)-set(i1)) \
@@ -46,7 +47,7 @@ def chunkcount(ri, dataset, weights=None, nchunks=1000):
             indices = [int(i) for i in np.hstack(pairs2)]
 
     sys.stderr.write('    source queries completed in {}s.\n'.format(query_time))
-    new_weights = np.sum(weights[chunk_indices[ichunk]][indices])
+    new_weights = np.sum(weights[chunk_index][indices])
     return float(pairs), new_weights
 
 def chunkwrapper(args):
@@ -63,8 +64,8 @@ def countpairs(src, lns, rnd, rndtype='lens',
         sys.stderr.write('    working on r={}\n'.format(radii[ri]))
 
         #multiprocessing      
-        annuli[radii[ri]]['srcpairs'], sum_srcweights = multi(ri, src, srcweights, numthreads)
-        annuli[radii[ri]]['rndpairs'], sum_rndweights = multi(ri, rnd, rndweights, numthreads)
+        annuli[radii[ri]]['srcpairs'], sum_srcweights = multi(ri, lns, src, srcweights, numthreads)
+        annuli[radii[ri]]['rndpairs'], sum_rndweights = multi(ri, lns, rnd, rndweights, numthreads)
     
         if srcweights is not None:
             annuli[radii[ri]]['Psrcsum'] = sum_srcweights
@@ -73,19 +74,22 @@ def countpairs(src, lns, rnd, rndtype='lens',
             
     return annuli
     
-def multi(ri, dataset, weights, numthreads):
+def multi(ri, lns, dataset, weights, numthreads):
     #multiprocessing
     pool = Pool(processes=numthreads)
     n_per_process = int(np.ceil(len(dataset.data) / float(numthreads)))
-    thread_chunks = [dataset.data[i:i+n_per_process] \
-                     for i in xrange(0, len(dataset.data), n_per_process)]
+    thread_chunks = (dataset.data[i:i+n_per_process] \
+                     for i in xrange(0, len(dataset.data), n_per_process))
+    weight_thread_chunks = (weights[i:i+n_per_process] \
+                            for i in xrange(0, len(weights), n_per_process))
 
-    results = pool.map(chunkwrapper, itertools.izip(itertools.repeat(ri),
+    results = pool.map(chunkwrapper, itertools.izip(itertools.repeat(ri), itertools.repeat(lns),
                                                     thread_chunks, weight_thread_chunks))
     chain_results = np.sum(results, axis=0)
 
     return chain_results
 
+@profile
 def mycorr(sources, lenses, randoms, output,
            random_type='lens', srcweights=None, rndweights=None,
            numthreads=1):
