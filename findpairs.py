@@ -64,8 +64,10 @@ def countpairs(src, lns, rnd, rndtype='lens',
         sys.stderr.write('    working on r={}\n'.format(radii[ri]))
 
         #multiprocessing      
-        annuli[radii[ri]]['srcpairs'], sum_srcweights = multi(ri, lns, src, srcweights, numthreads)
-        annuli[radii[ri]]['rndpairs'], sum_rndweights = multi(ri, lns, rnd, rndweights, numthreads)
+        annuli[radii[ri]]['srcpairs'], sum_srcweights = chunkcount(ri, lns, src.data, srcweights)
+        #multi(ri, lns, src, srcweights, numthreads)
+        annuli[radii[ri]]['rndpairs'], sum_rndweights =  chunkcount(ri, lns, rnd.data, rndweights)
+        #multi(ri, lns, rnd, rndweights, numthreads)
     
         if srcweights is not None:
             annuli[radii[ri]]['Psrcsum'] = sum_srcweights
