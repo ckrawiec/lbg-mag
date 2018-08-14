@@ -17,38 +17,38 @@ from multiprocessing import Pool
 radii = np.logspace(np.log10(0.01), np.log10(0.8), 6)
 
 def chunkcount(ri, lns, data, weights):
-    nchunks = 1000
+    nchunks = 100
     chunk_size = int(np.ceil(float(len(data))/nchunks))
-    chunks = (zip(data['RA'], data['DEC'])[i:i+chunk_size] \
-              for i in xrange(0, len(data), chunk_size))
-    chunk_indices = (list(range(len(data))[i:i+chunk_size]) \
-                     for i in xrange(0, len(data), chunk_size))
-
-    pairs, rpairs = 0, 0
-                     
-    #query_ball_tree
-    query_time = 0
-    for chunk, chunk_index in itertools.izip(chunks, chunk_indices):
-        start_tree = time.time()
-        tree = ckdtree.cKDTree(chunk)
+    
+    #query tree from each chunk
+    query_time, pairs = 0, 0
+    for i in xrange(0, len(data), chunk_size):
+        start_query = time.time()
+        #create tree from positions for this chunk
+        tree = ckdtree.cKDTree(zip(data['RA'][i:i+chunk_size],
+                                   data['DEC'][i:i+chunk_size]))
+        #query the lens tree for outer radius
         pairs2 = lns.tree.query_ball_tree(tree, r=radii[ri])
-            
-        end_tree = time.time()
-        query_time += end_tree - start_tree
 
         if ri!=0:
+            #query the lens tree for inner radius
             pairs1 = lns.tree.query_ball_tree(tree, r=radii[ri-1])
             pairs += np.sum((len(item) for item in pairs2)) - \
                      np.sum((len(item) for item in pairs1))
             indices = [int(i) for i in np.hstack([list(set(i2)-set(i1)) \
                                                   for i1,i2 in zip(pairs1, pairs2)])]
         else:
+            #if this is smallest radius, use all within "outer"
             pairs  += np.sum((len(item) for item in pairs2))
             indices = [int(i) for i in np.hstack(pairs2)]
 
-    sys.stderr.write('    source queries completed in {}s.\n'.format(query_time))
-    new_weights = np.sum(weights[chunk_index][indices])
-    return float(pairs), new_weights
+        #save sum of weights for pairs found in this chunk
+        chunk_indices = list(range(len(data))[i:i+chunk_size])
+        weight_sum += np.sum(weights[chunk_indices][indices])
+        query_time += time.time() - start_query
+        
+    sys.stderr.write('    queries completed in {}s.\n'.format(query_time))
+    return float(pairs), weight_sum
 
 def chunkwrapper(args):
     return chunkcount(*args)
@@ -56,19 +56,22 @@ def chunkwrapper(args):
 def countpairs(src, lns, rnd, rndtype='lens',
                srcweights=None, rndweights=None,
                numthreads=1):
+
     #radii in increasing order
     annuli = {}
-
+    lns.initTree()
     for ri in range(len(radii)):
         annuli[radii[ri]] = {}
         sys.stderr.write('    working on r={}\n'.format(radii[ri]))
+        
+        #multiprocessing
+        if numthreads == 1:
+            annuli[radii[ri]]['srcpairs'], sum_srcweights = chunkcount(ri, lns, src.data, srcweights)
+            annuli[radii[ri]]['rndpairs'], sum_rndweights =  chunkcount(ri, lns, rnd.data, rndweights)
+        else:
+            annuli[radii[ri]]['srcpairs'], sum_srcweights = multi(ri, lns, src, srcweights, numthreads)            
+            annuli[radii[ri]]['rndpairs'], sum_rndweights = multi(ri, lns, rnd, rndweights, numthreads)
 
-        #multiprocessing      
-        annuli[radii[ri]]['srcpairs'], sum_srcweights = chunkcount(ri, lns, src.data, srcweights)
-        #multi(ri, lns, src, srcweights, numthreads)
-        annuli[radii[ri]]['rndpairs'], sum_rndweights =  chunkcount(ri, lns, rnd.data, rndweights)
-        #multi(ri, lns, rnd, rndweights, numthreads)
-    
         if srcweights is not None:
             annuli[radii[ri]]['Psrcsum'] = sum_srcweights
         if rndweights is not None:
@@ -88,10 +91,8 @@ def multi(ri, lns, dataset, weights, numthreads):
     results = pool.map(chunkwrapper, itertools.izip(itertools.repeat(ri), itertools.repeat(lns),
                                                     thread_chunks, weight_thread_chunks))
     chain_results = np.sum(results, axis=0)
-
     return chain_results
 
-@profile
 def mycorr(sources, lenses, randoms, output,
            random_type='lens', srcweights=None, rndweights=None,
            numthreads=1):
@@ -105,15 +106,7 @@ def mycorr(sources, lenses, randoms, output,
     elif random_type=='source':
         other_type = 'lens'
         ratio = float(len(randoms.data)) / len(sources.data)
-        
-    #make trees
-    start_tree = time.time()
-    sources.initTree()
-    lenses.initTree()
-    randoms.initTree()
-    end_tree = time.time()
-        
-    sys.stderr.write('    Trees created in {}s.\n'.format(end_tree-start_tree))       
+            
     start_q = time.time()
     sys.stderr.write('    Starting queries...\n')
         
@@ -124,14 +117,19 @@ def mycorr(sources, lenses, randoms, output,
     sys.stderr.write('    Done.\n')
     end_q = time.time()
         
-    sys.stdout.write('    Time for pair queries: {}s.\n'.format(end_q-start_q))
+    sys.stdout.write('    Total time for pair queries: {}s.\n'.format(end_q-start_q))
         
     for k in np.sort(annuli.keys()):
         print '    r={}: {} source-lens pairs'.format(k, annuli[k]['srcpairs'])
         print '          {} {}-random {} pairs'.format(annuli[k]['rndpairs'],
                                                        other_type,
                                                        random_type)
-            
+    tab = plotnsave(sources, lenses, randoms, annuli,
+                    random_type, srcweights, rndweights)
+    return tab
+
+def plotnsave(sources, lenses, randoms, annuli,
+              random_type='lens', srcweights=None, rndweights=None):
     #plot pair counts
     r = np.sort(annuli.keys())
     DD = np.array([annuli[k]['srcpairs'] for k in r])
@@ -245,7 +243,7 @@ def main(params):
                                                                                     params['random_file']))
     sources   = DataSet(params['source_file'], racol='RA', deccol='DEC')
     lenses    = DataSet(params['lens_file'], racol='RA', deccol='DEC')
-    randoms  = DataSet(params['random_file'], racol='RA', deccol='DEC')
+    randoms   = DataSet(params['random_file'], racol='RA', deccol='DEC')
 
     if 'source_weight_column' in params:
         srcweights = sources.data[params['source_weight_column']]
