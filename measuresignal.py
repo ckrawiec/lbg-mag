@@ -52,7 +52,7 @@ def assignbalrog(params, tabnums):
         sys.stderr.write('Writing sim types to {}.\n'.format(type_file))
         type_data.write(type_file, overwrite=True)
 
-    del balrog
+    del this_balrog, type_data, balrog
 
 def calcmu(n, n0, P, k):
     diff = n - np.dot(P, n0)
@@ -97,21 +97,6 @@ def main(config):
     #get test and target objects and their assigned types
     DataSet.assignTypes = assignTypes
 
-    #need test DataSet later
-    test_objects = DataSet(params['test_data_file'],
-                           zpfiles=params['test_zp_file'],
-                           idcol=params['test_data_id_column'],
-                           output=params['output']+'_test',
-                           zcol=params['test_z_column'],
-                           magcol=params['test_mag_column'])
-    test_objects.assignTypes(params['redshift_index'],
-                             params['below'], params['above'])
-    if not outputs_exist['test types']:
-        for objtype in test_objects.types:
-            test_table = '{}_test_type{}.fits'.format(params['output'], objtype)
-            test_data = test_objects.data[test_objects.types[objtype]]
-            test_data.write(test_table, overwrite=True)
-
     #targets
     if not outputs_exist['target types']:
         target_objects = DataSet(params['source_file'],
@@ -131,51 +116,89 @@ def main(config):
         assignbalrog(params, tabnums)
 
     #measured quantities, vectors and matrices
-    n_vec = []
-    n0_vec = []
-    P_mat = []
-    k_mat = []
-    
-    #test info needed for later
-    test_z = test_objects.data[test_objects.zcol]
-    test_ids = test_objects.data[test_objects.idcol]
+    n_vec, n0_vec = [], []
     output_table = {}
     for objtype in range(len(params['true_ranges'])):
         sys.stderr.write('Working on type {}...\n'.format(objtype))
         
-        #write/read type objects to/from table
+        #read type objects to/from table
         target_table = '{}_targets_type{}.fits'.format(params['output'], objtype)
         random_table = '{}_balrogsim_type{}.fits'.format(params['output'], objtype)
-        targets = Table.read(target_table)
 
+        #probability columns
         Ps = ['P'+str(zrange) for zrange in getzgroups(targets.columns)]
-        n0 = np.sum(targets[Ps[objtype]])
-        n0_vec.append(n0)
-        output_table['n0_{}'.format(objtype)] = n0
 
+        #correlations with lenses for each type
         corr_output = params['output']+'_type{}_correlations.fits'.format(objtype)
         if  not os.path.exists(corr_output):
-            #for each type - create parameters for treecorr 
+            #create parameters for treecorr 
             these_params = {}
-            these_params['num_threads'] = params['num_threads']
             these_params['source_file'] = target_table
-            these_params['lens_file'] = params['lens_file'] 
             these_params['random_file'] = random_table
+            these_params['lens_file'] = params['lens_file'] 
+            these_params['num_threads'] = params['num_threads']
             these_params['random_type'] = 'source'
             these_params['source_weight_column'] = Ps[objtype]
             these_params['output'] = params['output']+'_type'+str(objtype)
 
             nn = findpairs.main(these_params)
+            
         else:
             nn = Table.read(corr_output)
 
         print nn
         n_vec.append(nn['DD'])
         sys.stderr.write('Done.\n')
-                
-        P_mat.append([])
-        k_mat.append([])
 
+        #open target table
+        targets = Table.read(target_table)
+        n0 = np.sum(targets[Ps[objtype]])
+        n0_vec.append(n0)
+        output_table['n0_{}'.format(objtype)] = n0
+
+    k_mat, P_mat = testcompare(params, outputs_exist, tabnums, detections)
+           
+    import dNdMu
+    #Run dNdMu with mu_G
+    dNdMu_params = params
+    dNdMu_params['redshifts'] = [[zmin, zmax] for zmin, zmax in params['true_ranges']]
+    k, detections = dNdMu.main(dNdMu_params)
+    output_table['k_output'.format(true_objtype)] = k
+    print "n = ", n_vec
+    print "n0 = ", n0_vec
+    print "P = ", P_mat
+    print "k = ", k_mat
+
+    for key in output_table.keys():
+        print "{}: {}".format(key, output_table[key])
+
+    #save outputs to file
+    import pickle
+    f = open(params['output']+'_output.pkl','wb')
+    pickle.dump(output_table, f)
+
+def testcompare(params, outputs_exist, tabnums, detections):
+    #test DataSet
+    test_objects = DataSet(params['test_data_file'],
+                           zpfiles=params['test_zp_file'],
+                           idcol=params['test_data_id_column'],
+                           output=params['output']+'_test',
+                           zcol=params['test_z_column'],
+                           magcol=params['test_mag_column'])
+    test_objects.assignTypes(params['redshift_index'],
+                             params['below'], params['above'])
+    
+    if not outputs_exist['test types']:
+        for objtype in test_objects.types:
+            test_table = '{}_test_type{}.fits'.format(params['output'], objtype)
+            test_data = test_objects.data[test_objects.types[objtype]]
+            test_data.write(test_table, overwrite=True)
+            
+    #test info needed for later
+    test_z = test_objects.data[test_objects.zcol]
+    test_ids = test_objects.data[test_objects.idcol]
+    k_mat, P_mat = []
+    for objtype in range(len(params['true_ranges'])):
         #needed for each objtype
         type_test_z = test_z[test_objects.types[objtype]]
         type_test_ids = test_ids[test_objects.types[objtype]]
@@ -186,7 +209,9 @@ def main(config):
             balrog_file = params['output']+'_balrogsimtab{}_type{}.fits'.format(tabnum, objtype)
             balrog_tab = Table.read(balrog_file)
             type_balrog_ids[tabnum] = balrog_tab[params['balrog_id_column']]
-        
+
+        k_mat.append([])
+        P_mat.append([])
         for true_objtype in range(len(params['true_ranges'])):
             zmin = np.min(params['true_ranges'][true_objtype])
             zmax = np.max(params['true_ranges'][true_objtype])
@@ -218,31 +243,11 @@ def main(config):
 
             print "True type {} original/magnified matches: {}, {}".format(true_objtype, old, new)
             k_HG = (float(new)-float(old)) / (params['mu'] - 1.)
-            output_table['k_{}_output'.format(true_objtype)] = k
+            
             output_table['k_{}{}'.format(objtype, true_objtype)] = k_HG
             k_mat[-1].append(k_HG)
 
-    import dNdMu
-    #Run dNdMu with mu_G
-    dNdMu_params = params
-    dNdMu_params['redshifts'] = [[zmin, zmax] for zmin, zmax in params['true_ranges']]
-    k, detections = dNdMu.main(dNdMu_params)
-
-    print "n = ", n_vec
-    print "n0 = ", n0_vec
-    print "P = ", P_mat
-    print "k = ", k_mat
-
-    for key in output_table.keys():
-        print "{}: {}".format(key, output_table[key])
-
-    #save outputs to file
-    import pickle
-    f = open(params['output']+'_output.pkl','wb')
-    pickle.dump(output_table, f)
-
-    #mu = calcmu(n_vec, n0_vec, P_mat, k_mat)
-    #print "mu = ", mu
+    return k_mat, P_mat
 
 if __name__=="__main__":
     main(sys.argv[1])

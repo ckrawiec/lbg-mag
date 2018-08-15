@@ -17,7 +17,10 @@ from multiprocessing import Pool
 radii = np.logspace(np.log10(0.01), np.log10(0.8), 6)
 
 def chunkcount(ri, lns, data, weights):
-    nchunks = 250
+    if radii[ri]>0.5:
+        nchunks = 1000
+    else:
+        nchunks = 100
     chunk_size = int(np.ceil(float(len(data))/nchunks))
     
     #query tree from each chunk
