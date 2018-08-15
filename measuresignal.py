@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import sys
 import glob
 import os
-import pickle
 from dataset import DataSet, getzgroups
 from assigntypes import assignTypes
 from parse import parseconfigs
@@ -237,7 +236,8 @@ def main(config):
     for key in output_table.keys():
         print "{}: {}".format(key, output_table[key])
 
-    ######## need sum of n0 in all redshift ranges for ALL sources at each annulus
+    #save outputs to file
+    import pickle
     f = open(params['output']+'_output.pkl','wb')
     pickle.dump(output_table, f)
 
