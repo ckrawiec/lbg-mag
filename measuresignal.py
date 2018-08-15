@@ -136,12 +136,6 @@ def main(config):
     P_mat = []
     k_mat = []
     
-    import dNdMu
-    #Run dNdMu with mu_G
-    dNdMu_params = params
-    dNdMu_params['redshifts'] = [[zmin, zmax] for zmin, zmax in params['true_ranges']]
-    k, detections = dNdMu.main(dNdMu_params)
-
     #test info needed for later
     test_z = test_objects.data[test_objects.zcol]
     test_ids = test_objects.data[test_objects.idcol]
@@ -227,6 +221,12 @@ def main(config):
             output_table['k_{}_output'.format(true_objtype)] = k
             output_table['k_{}{}'.format(objtype, true_objtype)] = k_HG
             k_mat[-1].append(k_HG)
+
+    import dNdMu
+    #Run dNdMu with mu_G
+    dNdMu_params = params
+    dNdMu_params['redshifts'] = [[zmin, zmax] for zmin, zmax in params['true_ranges']]
+    k, detections = dNdMu.main(dNdMu_params)
 
     print "n = ", n_vec
     print "n0 = ", n0_vec

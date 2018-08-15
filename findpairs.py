@@ -17,11 +17,11 @@ from multiprocessing import Pool
 radii = np.logspace(np.log10(0.01), np.log10(0.8), 6)
 
 def chunkcount(ri, lns, data, weights):
-    nchunks = 100
+    nchunks = 250
     chunk_size = int(np.ceil(float(len(data))/nchunks))
     
     #query tree from each chunk
-    query_time, pairs = 0, 0
+    query_time, pairs, weight_sum = 0, 0, 0
     for i in xrange(0, len(data), chunk_size):
         start_query = time.time()
         #create tree from positions for this chunk
@@ -33,14 +33,16 @@ def chunkcount(ri, lns, data, weights):
         if ri!=0:
             #query the lens tree for inner radius
             pairs1 = lns.tree.query_ball_tree(tree, r=radii[ri-1])
+            del tree
+
             pairs += np.sum((len(item) for item in pairs2)) - \
                      np.sum((len(item) for item in pairs1))
-            indices = [int(i) for i in np.hstack([list(set(i2)-set(i1)) \
+            indices = [int(j) for j in np.hstack([list(set(i2)-set(i1)) \
                                                   for i1,i2 in zip(pairs1, pairs2)])]
         else:
             #if this is smallest radius, use all within "outer"
             pairs  += np.sum((len(item) for item in pairs2))
-            indices = [int(i) for i in np.hstack(pairs2)]
+            indices = [int(j) for j in np.hstack(pairs2)]
 
         #save sum of weights for pairs found in this chunk
         chunk_indices = list(range(len(data))[i:i+chunk_size])
