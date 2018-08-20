@@ -16,43 +16,58 @@ from dataset import DataSet
 radii = np.logspace(np.log10(0.01), np.log10(0.8), 6)
 
 def chunkcount(ri, lns, data, weights):
+    #lens chunks
+    lens_nchunks = 5
+    
+    #source chunks
     if radii[ri]>0.5:
         nchunks = 2500
     else:
         nchunks = 50
+
+    #size of each chunk
     chunk_size = int(np.ceil(float(len(data))/nchunks))
-    
-    #query tree from each chunk
+    lens_chunk_size = int(np.ceil(float(len(lns.data))/lens_nchunks))
+
+    #loop over lens chunks
     query_time, pairs, weight_sum = 0, 0, 0
-    for i in xrange(0, len(data), chunk_size):
-        start_query = time.time()
-        #create tree from positions for this chunk
-        chunk_indices = list(range(i, i+chunk_size))
-        tree = ckdtree.cKDTree(zip(data['RA'][i:i+chunk_size],
-                                   data['DEC'][i:i+chunk_size]))
-        #query the lens tree for outer radius
-        pairs2 = lns.tree.query_ball_tree(tree, r=radii[ri])
-
-        if ri!=0:
-            #query the lens tree for inner radius
-            pairs1 = lns.tree.query_ball_tree(tree, r=radii[ri-1])
-            del tree
-
-            pairs += np.sum((len(item) for item in pairs2)) - \
-                     np.sum((len(item) for item in pairs1))
+    for il in xrange(0, len(lns.data), lens_chunks_size):
+        lns_chunk = ckdtree.cKDTree(zip(lns.data['RA'][il:il+lens_chunk_size],
+                                        lns.data['DEC'][il:il+lens_chunk_size]))
+    
+        #loop over source chunks
+        for i in xrange(0, len(data), chunk_size):
+            start_query = time.time()
             
-            indices = (chunk_indices[int(j)] for j in np.hstack(list(set(i2)-set(i1)) \
-                                                                for i1,i2 in itertools.izip(pairs1, pairs2)))
-            del pairs1, pairs2
-            weight_sum += np.sum((weights[int(d)] for d in indices))
+            #create tree from positions for this chunk
+            chunk_indices = list(range(i, i+chunk_size))
+            tree = ckdtree.cKDTree(zip(data['RA'][i:i+chunk_size],
+                                       data['DEC'][i:i+chunk_size]))
 
-        else:
-            #if this is smallest radius, use all within "outer"
-            pairs  += np.sum((len(item) for item in pairs2))
+            #query the lens tree for outer radius
+            pairs2 = lns_chunk.query_ball_tree(tree, r=radii[ri])
 
-            #save sum of weights for pairs found in this chunk
-            indices = [chunk_indices[int(j)] for j in np.hstack(pairs2)]
-            weight_sum += np.sum((weights[int(d)] for d in indices))
+            if ri!=0:
+                #query the lens tree for inner radius
+                pairs1 = lns_chunk.query_ball_tree(tree, r=radii[ri-1])
+                del tree, lns_chunk
+
+                pairs += np.sum((len(item) for item in pairs2)) - \
+                         np.sum((len(item) for item in pairs1))
+            
+                indices = (chunk_indices[int(j)] \
+                           for j in np.hstack(list(set(i2)-set(i1)) \
+                                              for i1,i2 in itertools.izip(pairs1, pairs2)))
+                del pairs1, pairs2
+                weight_sum += np.sum((weights[int(d)] for d in indices))
+
+            else:
+                #if this is smallest radius, use all within "outer"
+                pairs  += np.sum((len(item) for item in pairs2))
+
+                #save sum of weights for pairs found in this chunk
+                indices = [chunk_indices[int(j)] for j in np.hstack(pairs2)]
+                weight_sum += np.sum((weights[int(d)] for d in indices))
 
         query_time += time.time() - start_query
         
@@ -68,7 +83,6 @@ def countpairs(src, lns, rnd, rndtype='lens',
 
     #radii in increasing order
     annuli = {}
-    lns.initTree()
     for ri in range(len(radii)):
         annuli[radii[ri]] = {}
         sys.stderr.write('    working on r={}\n'.format(radii[ri]))
