@@ -36,7 +36,8 @@ def assignbalrog(params, tabnums):
                               output=params['output']+'_balrog'+str(tabnum),
                               magcol=params['balrog_sim_mag_column'])
         this_balrog.assignTypes(params['redshift_index'],
-                                params['below'], params['above'])
+                                params['below'], params['above'],
+                                trueranges=params['true_ranges'])
         balrog[tabnum] = {}
         for objtype in this_balrog.types:
             balrog[tabnum][objtype] = this_balrog.data[this_balrog.types[objtype]]
@@ -105,11 +106,14 @@ def main(config):
                                  output=params['output'],
                                  magcol='MAG_AUTO_{}')
         target_objects.assignTypes(params['redshift_index'],
-                                   params['below'], params['above'])
+                                   params['below'], params['above'], 
+                                   trueranges=params['true_ranges'])
         for objtype in target_objects.types:
             target_table = '{}_targets_type{}.fits'.format(params['output'], objtype)
             target_data = target_objects.data[target_objects.types[objtype]]
             target_data.write(target_table, overwrite=True)
+
+        del target_objects, target_data
 
     #get balrog objects and their assigned types and write to file
     if not outputs_exist['balrog types']:
@@ -125,9 +129,6 @@ def main(config):
         target_table = '{}_targets_type{}.fits'.format(params['output'], objtype)
         random_table = '{}_balrogsim_type{}.fits'.format(params['output'], objtype)
 
-        #probability columns
-        Ps = ['P'+str(zrange) for zrange in getzgroups(targets.columns)]
-
         #correlations with lenses for each type
         corr_output = params['output']+'_type{}_correlations.fits'.format(objtype)
         if  not os.path.exists(corr_output):
@@ -138,7 +139,7 @@ def main(config):
             these_params['lens_file'] = params['lens_file'] 
             these_params['num_threads'] = params['num_threads']
             these_params['random_type'] = 'source'
-            these_params['source_weight_column'] = Ps[objtype]
+            these_params['source_weight_column'] = 'P'+str(params['true_ranges'][objtype])
             these_params['output'] = params['output']+'_type'+str(objtype)
 
             nn = findpairs.main(these_params)
@@ -186,7 +187,8 @@ def testcompare(params, outputs_exist, tabnums, detections):
                            zcol=params['test_z_column'],
                            magcol=params['test_mag_column'])
     test_objects.assignTypes(params['redshift_index'],
-                             params['below'], params['above'])
+                             params['below'], params['above'],
+                             trueranges=params['true_ranges'])
     
     if not outputs_exist['test types']:
         for objtype in test_objects.types:

@@ -4,7 +4,7 @@ import parse
 from matplotlib.pyplot import cm
 from dataset import DataSet
 
-def assignTypes(self, zindices, belows, aboves, check=True):
+def assignTypes(self, zindices, belows, aboves, check=True, trueranges=None):
     """
     Creates attribute self.types: a dictionary of masks
     corresponding to each type described by the inputs.
@@ -24,9 +24,12 @@ def assignTypes(self, zindices, belows, aboves, check=True):
 
         #cycle through this redshift group
         for j in range(len(zindices[i])):
-            probs = [self.data[self.probabilities[zindex]] for zindex in zindices[i][j]]    
+            probs = [self.data[self.probabilities[zindex]] for zindex in zindices[i][j]]
             where = np.array((np.sum(probs, axis=0) < belows[i][j]) & (np.sum(probs, axis=0) > aboves[i][j]))
             mask = mask & where
+            
+            if len(probs) > 1:
+                self.data['P'+str(trueranges[i])] = np.sum(probs, axis=0)
 
         #save data mask in type dictionary
         self.types[i] = mask
