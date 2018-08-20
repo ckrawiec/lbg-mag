@@ -10,7 +10,6 @@ from scipy.spatial import ckdtree
 from astropy.io import fits
 from astropy.table import Table
 from dataset import DataSet
-from multiprocessing import Pool
 
 
 #radii - same units as positions
@@ -18,9 +17,9 @@ radii = np.logspace(np.log10(0.01), np.log10(0.8), 6)
 
 def chunkcount(ri, lns, data, weights):
     if radii[ri]>0.5:
-        nchunks = 1000
+        nchunks = 2500
     else:
-        nchunks = 100
+        nchunks = 50
     chunk_size = int(np.ceil(float(len(data))/nchunks))
     
     #query tree from each chunk
@@ -28,6 +27,7 @@ def chunkcount(ri, lns, data, weights):
     for i in xrange(0, len(data), chunk_size):
         start_query = time.time()
         #create tree from positions for this chunk
+        chunk_indices = list(range(i, i+chunk_size))
         tree = ckdtree.cKDTree(zip(data['RA'][i:i+chunk_size],
                                    data['DEC'][i:i+chunk_size]))
         #query the lens tree for outer radius
@@ -40,16 +40,20 @@ def chunkcount(ri, lns, data, weights):
 
             pairs += np.sum((len(item) for item in pairs2)) - \
                      np.sum((len(item) for item in pairs1))
-            indices = [int(j) for j in np.hstack([list(set(i2)-set(i1)) \
-                                                  for i1,i2 in zip(pairs1, pairs2)])]
+            
+            indices = (chunk_indices[int(j)] for j in np.hstack(list(set(i2)-set(i1)) \
+                                                                for i1,i2 in itertools.izip(pairs1, pairs2)))
+            del pairs1, pairs2
+            weight_sum += np.sum((weights[int(d)] for d in indices))
+
         else:
             #if this is smallest radius, use all within "outer"
             pairs  += np.sum((len(item) for item in pairs2))
-            indices = [int(j) for j in np.hstack(pairs2)]
 
-        #save sum of weights for pairs found in this chunk
-        chunk_indices = list(range(len(data))[i:i+chunk_size])
-        weight_sum += np.sum(weights[chunk_indices][indices])
+            #save sum of weights for pairs found in this chunk
+            indices = [chunk_indices[int(j)] for j in np.hstack(pairs2)]
+            weight_sum += np.sum((weights[int(d)] for d in indices))
+
         query_time += time.time() - start_query
         
     sys.stderr.write('    queries completed in {}s.\n'.format(query_time))
@@ -74,6 +78,7 @@ def countpairs(src, lns, rnd, rndtype='lens',
             annuli[radii[ri]]['srcpairs'], sum_srcweights = chunkcount(ri, lns, src.data, srcweights)
             annuli[radii[ri]]['rndpairs'], sum_rndweights =  chunkcount(ri, lns, rnd.data, rndweights)
         else:
+            from multiprocessing import Pool
             annuli[radii[ri]]['srcpairs'], sum_srcweights = multi(ri, lns, src, srcweights, numthreads)            
             annuli[radii[ri]]['rndpairs'], sum_rndweights = multi(ri, lns, rnd, rndweights, numthreads)
 
