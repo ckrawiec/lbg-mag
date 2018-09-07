@@ -12,10 +12,10 @@ from scipy.interpolate import griddata
 from dataset import DataSet
 
 test = True
-sizes = False
+sizes = True
 logs = False
 filters = 'GRIZ'
-gridfile = '/Users/Christina/DES/data/balrog/sva1/balrog_tab01_avg_star_fluxradiusi_0.1deg.fits'
+gridfile = '/home/ckrawiec/DES/data/balrog_tab01_avg_star_fluxradiusi_0.1deg.fits'
 
 config = {}
 config['filters'] = 'GRIZ'
@@ -295,6 +295,7 @@ def main(args):
             #detected objects whose truth fluxes match original set
             truth_ids = truth_matches[tabnum]['original id'][original_set]
             original_match_ids = set(sim['BALROG_INDEX']).intersection(truth_ids)
+            print list(original_match_ids)[:10], type(list(original_match_ids)[0])
             original_detections += len(original_match_ids)
             
             #detected objects whose truth fluxes match magnified set

@@ -12,18 +12,14 @@ from astropy.table import Table
 from dataset import DataSet
 
 
-#radii - same units as positions
-radii = np.logspace(np.log10(0.01), np.log10(0.8), 6)
-
-def chunkcount(ri, lns, data, weights):
-    #lens chunks
-    lens_nchunks = 5
-    
-    #source chunks
+def chunkcount(ri, lns, data, radii, weights):
+    #source/lens chunks
     if radii[ri]>0.5:
-        nchunks = 2500
+        nchunks = 500
+        lens_nchunks = 50
     else:
-        nchunks = 50
+        nchunks = 2
+        lens_nchunks = 2
 
     #size of each chunk
     chunk_size = int(np.ceil(float(len(data))/nchunks))
@@ -31,76 +27,91 @@ def chunkcount(ri, lns, data, weights):
 
     #loop over lens chunks
     query_time, pairs, weight_sum = 0, 0, 0
-    for il in xrange(0, len(lns.data), lens_chunks_size):
+    for il in xrange(0, len(lns.data), lens_chunk_size):
+        start_query = time.time()
         lns_chunk = ckdtree.cKDTree(zip(lns.data['RA'][il:il+lens_chunk_size],
                                         lns.data['DEC'][il:il+lens_chunk_size]))
     
         #loop over source chunks
         for i in xrange(0, len(data), chunk_size):
-            start_query = time.time()
-            
             #create tree from positions for this chunk
-            chunk_indices = list(range(i, i+chunk_size))
+            chunk_indices = (range(i, i+chunk_size))
             tree = ckdtree.cKDTree(zip(data['RA'][i:i+chunk_size],
                                        data['DEC'][i:i+chunk_size]))
 
             #query the lens tree for outer radius
             pairs2 = lns_chunk.query_ball_tree(tree, r=radii[ri])
-
+            pairs += np.sum((len(item) for item in pairs2))
+ 
+            weight_sum += np.sum(np.sum(weights[int(d)] for d in item) for item in pairs2)
+            del pairs2
             if ri!=0:
                 #query the lens tree for inner radius
                 pairs1 = lns_chunk.query_ball_tree(tree, r=radii[ri-1])
-                del tree, lns_chunk
+                del tree
 
-                pairs += np.sum((len(item) for item in pairs2)) - \
-                         np.sum((len(item) for item in pairs1))
-            
-                indices = (chunk_indices[int(j)] \
-                           for j in np.hstack(list(set(i2)-set(i1)) \
-                                              for i1,i2 in itertools.izip(pairs1, pairs2)))
-                del pairs1, pairs2
-                weight_sum += np.sum((weights[int(d)] for d in indices))
+                pairs -= np.sum((len(item) for item in pairs1))
+#                sys.stderr.write('    pairs = {}\n'.format(pairs))
+                weight_sum -= np.sum(np.sum(weights[int(d)] for d in item) for item in pairs1)
+                del pairs1
+#(chunk_indices[int(j)] \
+ #                          for j in np.hstack(list(set(i2)-set(i1)) \
+ #                                             for i1,i2 in itertools.izip(pairs1, pairs2)))
+#                weight_sum += np.sum((weights[int(d)] for d in indices))
 
-            else:
+#            else:
                 #if this is smallest radius, use all within "outer"
-                pairs  += np.sum((len(item) for item in pairs2))
-
                 #save sum of weights for pairs found in this chunk
-                indices = [chunk_indices[int(j)] for j in np.hstack(pairs2)]
-                weight_sum += np.sum((weights[int(d)] for d in indices))
+#                indices = [chunk_indices[int(j)] for j in np.hstack(pairs2)]
+#                weight_sum += np.sum((weights[int(d)] for d in indices))
 
         query_time += time.time() - start_query
-        
+        del lns_chunk
+
     sys.stderr.write('    queries completed in {}s.\n'.format(query_time))
+    sys.stderr.write('    pairs = {}\n'.format(pairs)) 
     return float(pairs), weight_sum
 
 def chunkwrapper(args):
     return chunkcount(*args)
 
-def countpairs(src, lns, rnd, rndtype='lens',
+def countpairs(src, lns, rnd, radii, rndtype='lens',
                srcweights=None, rndweights=None,
                numthreads=1):
 
     #radii in increasing order
     annuli = {}
+    #sources first
     for ri in range(len(radii)):
         annuli[radii[ri]] = {}
-        sys.stderr.write('    working on r={}\n'.format(radii[ri]))
+        sys.stderr.write('    working on r={} (sources)\n'.format(radii[ri]))
         
         #multiprocessing
         if numthreads == 1:
-            annuli[radii[ri]]['srcpairs'], sum_srcweights = chunkcount(ri, lns, src.data, srcweights)
-            annuli[radii[ri]]['rndpairs'], sum_rndweights =  chunkcount(ri, lns, rnd.data, rndweights)
+            annuli[radii[ri]]['srcpairs'], sum_srcweights =  chunkcount(ri, lns, src.data, radii, srcweights)
+            if srcweights is not None:
+                annuli[radii[ri]]['Psrcsum'] = sum_srcweights            
+
         else:
             from multiprocessing import Pool
             annuli[radii[ri]]['srcpairs'], sum_srcweights = multi(ri, lns, src, srcweights, numthreads)            
-            annuli[radii[ri]]['rndpairs'], sum_rndweights = multi(ri, lns, rnd, rndweights, numthreads)
+            if srcweights is not None:
+                annuli[radii[ri]]['Psrcsum'] = sum_srcweights
+    del src, srcweights
 
-        if srcweights is not None:
-            annuli[radii[ri]]['Psrcsum'] = sum_srcweights
-        if rndweights is not None:
-            annuli[radii[ri]]['Prndsum'] = sum_rndweights
-            
+    #randoms
+    for ri in range(len(radii)):
+        sys.stderr.write('    working on r={} (randoms)\n'.format(radii[ri]))
+        if numthreads == 1:
+            annuli[radii[ri]]['rndpairs'], sum_rndweights =  chunkcount(ri, lns, rnd.data, radii, rndweights)
+            if rndweights is not None:
+                annuli[radii[ri]]['Prndsum'] = sum_rndweights
+        else:
+            from multiprocessing import Pool
+            annuli[radii[ri]]['rndpairs'], sum_rndweights = multi(ri, lns, rnd, rndweights, numthreads)
+            if rndweights is not None:
+                annuli[radii[ri]]['Prndsum'] = sum_rndweights
+    del rnd, rndweights
     return annuli
     
 def multi(ri, lns, dataset, weights, numthreads):
@@ -117,7 +128,7 @@ def multi(ri, lns, dataset, weights, numthreads):
     chain_results = np.sum(results, axis=0)
     return chain_results
 
-def mycorr(sources, lenses, randoms, output,
+def mycorr(sources, lenses, randoms, output, radii,
            random_type='lens', srcweights=None, rndweights=None,
            numthreads=1):
     sys.stdout.write('\n    Sources: {}\n    Lenses: {}\n'.format(len(sources.data),
@@ -130,12 +141,12 @@ def mycorr(sources, lenses, randoms, output,
     elif random_type=='source':
         other_type = 'lens'
         ratio = float(len(randoms.data)) / len(sources.data)
-            
+        
     start_q = time.time()
     sys.stderr.write('    Starting queries...\n')
         
     #for each radius, query for all sources around lenses
-    annuli = countpairs(sources, lenses, randoms, rndtype=random_type,
+    annuli = countpairs(sources, lenses, randoms, radii, rndtype=random_type,
                         srcweights=srcweights, rndweights=rndweights,
                         numthreads=numthreads)
     sys.stderr.write('    Done.\n')
@@ -148,11 +159,11 @@ def mycorr(sources, lenses, randoms, output,
         print '          {} {}-random {} pairs'.format(annuli[k]['rndpairs'],
                                                        other_type,
                                                        random_type)
-    tab = plotnsave(sources, lenses, randoms, annuli,
+    tab = plotnsave(sources, lenses, randoms, annuli, output,
                     random_type, srcweights, rndweights)
     return tab
 
-def plotnsave(sources, lenses, randoms, annuli,
+def plotnsave(sources, lenses, randoms, annuli, output,
               random_type='lens', srcweights=None, rndweights=None):
     #plot pair counts
     r = np.sort(annuli.keys())
@@ -176,6 +187,13 @@ def plotnsave(sources, lenses, randoms, annuli,
     tab['DD'] = DD
     tab['DR'] = DR
         
+    if random_type=='lens':
+        other_type = 'source'
+        ratio = float(len(randoms.data)) / len(lenses.data)
+    elif random_type=='source':
+        other_type = 'lens'
+        ratio = float(len(randoms.data)) / len(sources.data)
+
     if srcweights is not None:
         DD_w = np.array([annuli[k]['Psrcsum'] for k in r])
         tab['DD_w'] = DD_w
@@ -279,7 +297,13 @@ def main(params):
         srcweights = None
         rndweights = None
 
-    corrtab = mycorr(sources, lenses, randoms, params['output'],
+    #radii - same units as positions
+    r_min = params['r_min']
+    r_max = params['r_max']
+    r_bins = params['r_bins']
+    radii = np.logspace(np.log10(r_min), np.log10(r_max), r_bins)
+
+    corrtab = mycorr(sources, lenses, randoms, params['output'], radii,
                      random_type=params['random_type'],
                      srcweights=srcweights,
                      rndweights=rndweights,

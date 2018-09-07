@@ -54,6 +54,11 @@ def parseconfigs(config_file):
     params['above'] = json.loads(config.get('Assignments','above'))
     params['true_ranges'] = json.loads(config.get('Assignments','true_ranges'))
 
+    #Correlations
+    params['r_min'] = config.getfloat('Correlations','r_min')
+    params['r_max'] = config.getfloat('Correlations','r_max')
+    params['r_bins'] = config.getint('Correlations','r_bins')
+
     #dNdMu
     params['mu'] = config.getfloat('dNdMu','mu')
     params['flux_min'] = config.getfloat('dNdMu','flux_min')

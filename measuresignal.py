@@ -141,6 +141,9 @@ def main(config):
             these_params['random_type'] = 'source'
             these_params['source_weight_column'] = 'P'+str(params['true_ranges'][objtype])
             these_params['output'] = params['output']+'_type'+str(objtype)
+            these_params['r_min'] = params['r_min']
+            these_params['r_max'] = params['r_max']
+            these_params['r_bins'] = params['r_bins']
 
             nn = findpairs.main(these_params)
             
@@ -153,23 +156,24 @@ def main(config):
 
         #open target table
         targets = Table.read(target_table)
-        n0 = np.sum(targets[Ps[objtype]])
+        n0 = np.sum(targets['P'+str(params['true_ranges'][objtype])])
         n0_vec.append(n0)
         output_table['n0_{}'.format(objtype)] = n0
-
-    k_mat, P_mat = testcompare(params, outputs_exist, tabnums, detections)
            
     import dNdMu
     #Run dNdMu with mu_G
     dNdMu_params = params
     dNdMu_params['redshifts'] = [[zmin, zmax] for zmin, zmax in params['true_ranges']]
     k, detections = dNdMu.main(dNdMu_params)
-    output_table['k_output'.format(true_objtype)] = k
+    k_mat, P_mat, output_table = testcompare(params, outputs_exist, tabnums, detections, output_table)
+    output_table['k_output'] = k
     print "n = ", n_vec
     print "n0 = ", n0_vec
     print "P = ", P_mat
-    print "k = ", k_mat
+#    print "k = ", k_mat
 
+    for key in k.keys():
+        print key, k[key]
     for key in output_table.keys():
         print "{}: {}".format(key, output_table[key])
 
@@ -178,7 +182,7 @@ def main(config):
     f = open(params['output']+'_output.pkl','wb')
     pickle.dump(output_table, f)
 
-def testcompare(params, outputs_exist, tabnums, detections):
+def testcompare(params, outputs_exist, tabnums, detections, output_table):
     #test DataSet
     test_objects = DataSet(params['test_data_file'],
                            zpfiles=params['test_zp_file'],
@@ -199,7 +203,7 @@ def testcompare(params, outputs_exist, tabnums, detections):
     #test info needed for later
     test_z = test_objects.data[test_objects.zcol]
     test_ids = test_objects.data[test_objects.idcol]
-    k_mat, P_mat = []
+    k_mat, P_mat = [], []
     for objtype in range(len(params['true_ranges'])):
         #needed for each objtype
         type_test_z = test_z[test_objects.types[objtype]]
@@ -210,7 +214,7 @@ def testcompare(params, outputs_exist, tabnums, detections):
         for tabnum in tabnums:
             balrog_file = params['output']+'_balrogsimtab{}_type{}.fits'.format(tabnum, objtype)
             balrog_tab = Table.read(balrog_file)
-            type_balrog_ids[tabnum] = balrog_tab[params['balrog_id_column']]
+            type_balrog_ids[tabnum] = [float(item) for item in balrog_tab[params['balrog_id_column']]]
 
         k_mat.append([])
         P_mat.append([])
@@ -238,18 +242,20 @@ def testcompare(params, outputs_exist, tabnums, detections):
 
             #for each table, find change in detected number for this objtype
             old, new = 0, 0
-            for tabnum in detections.keys():
+            for tabnum in tabnums:
                 #are objtype objects in detections?
-                old += len(set(type_balrog_ids).intersection(set(detections[tabnum]['original matches'])))
-                new += len(set(type_balrog_ids).intersection(set(detections[tabnum]['magnified matches'])))
+                old += len(set(type_balrog_ids[tabnum]).intersection(set(detections[str(params['true_ranges'][true_objtype])][tabnum]['original matches'])))
+                new += len(set(type_balrog_ids[tabnum]).intersection(set(detections[str(params['true_ranges'][true_objtype])][tabnum]['magnified matches'])))
 
             print "True type {} original/magnified matches: {}, {}".format(true_objtype, old, new)
-            k_HG = (float(new)-float(old)) / (params['mu'] - 1.)
+            output_table['nold_{}{}'.format(objtype, true_objtype)] = float(old)
+            output_table['nnew_{}{}'.format(objtype, true_objtype)] = float(new)
+            k_HG = (np.log10(float(new))-np.log10(float(old))) / (params['mu'] - 1.)
             
             output_table['k_{}{}'.format(objtype, true_objtype)] = k_HG
             k_mat[-1].append(k_HG)
 
-    return k_mat, P_mat
+    return k_mat, P_mat, output_table
 
 if __name__=="__main__":
     main(sys.argv[1])
