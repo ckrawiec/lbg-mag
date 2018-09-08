@@ -104,7 +104,7 @@ def countpairs(src, lns, rnd, radii, rndtype='lens',
             #sources first
             this_dpos = srcpos[k_indices!=k]
             this_srcweights = srcweights[k_indices!=k]
-            annuli = loopradius(annuli, 'Psrcsum', 'srcpairs'
+            annuli = loopradius(annuli, 'Psrcsum', 'srcpairs',
                                 radii, lns, this_dpos, this_srcweights)
             del this_dpos
     
@@ -116,7 +116,7 @@ def countpairs(src, lns, rnd, radii, rndtype='lens',
 
             jkresults[k] = {}
             jkresults[k]['Psrcsum'] = [annuli[rad]['Psrcsum'] for rad in radii]
-            jkresults[k]['Prndsum'] = [annuli[rad]['Prndsum'] for rad in radii]}
+            jkresults[k]['Prndsum'] = [annuli[rad]['Prndsum'] for rad in radii]
 
             #get w for this sample
             jkresults[k]['w'] = [w(annuli[rad]['Psrcsum'], annuli[rad]['Psrcsum']) \
@@ -137,7 +137,7 @@ def countpairs(src, lns, rnd, radii, rndtype='lens',
 
     #sources first
     srcpos = zip(src.data['RA'], src.data['DEC'])
-    annuli = loopradius(annuli, 'Psrcsum', 'srcpairs'
+    annuli = loopradius(annuli, 'Psrcsum', 'srcpairs',
                         radii, lns, srcpos, srcweights)
     #save space
     del src, srcpos, srcweights
