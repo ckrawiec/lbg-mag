@@ -103,15 +103,16 @@ def countpairs(src, lns, rnd, radii, rndtype='lens',
 
             #sources first
             this_dpos = srcpos[k_indices!=k]
-            this_srcweights = ???
+            this_srcweights = srcweights[k_indices!=k]
             annuli = loopradius(annuli, 'Psrcsum', 'srcpairs'
                                 radii, lns, this_dpos, this_srcweights)
             del this_dpos
     
             #again with randoms
             this_rpos = rndpos[k_indices!=k]
+            this_rndweights = rndweights[k_indices!=k]
             annuli = loopradius(annuli, 'Prndsum', 'rndpairs',
-                                radii, lns, this_rpos, rndweights)
+                                radii, lns, this_rpos, this_rndweights)
 
             jkresults[k] = {}
             jkresults[k]['Psrcsum'] = [annuli[rad]['Psrcsum'] for rad in radii]
