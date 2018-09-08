@@ -10,11 +10,20 @@ from scipy.spatial import ckdtree
 from astropy.io import fits
 from astropy.table import Table
 from dataset import DataSet
+from scipy.cluster.vq import kmeans, vq
 
+jackknife = True
+njackknife = 5
 
-def chunkcount(ri, lns, data, radii, weights):
+def chunkcount(rinner, router, lns, positions, weights):
+    """
+    Query tree of lens positions for sources
+    in outer radius and inner radius of annulus.
+    Save number of pairs and sum of weights.
+    """
+
     #source/lens chunks
-    if radii[ri]>0.5:
+    if router>0.5:
         nchunks = 500
         lens_nchunks = 50
     else:
@@ -34,36 +43,29 @@ def chunkcount(ri, lns, data, radii, weights):
     
         #loop over source chunks
         for i in xrange(0, len(data), chunk_size):
+
             #create tree from positions for this chunk
             chunk_indices = (range(i, i+chunk_size))
-            tree = ckdtree.cKDTree(zip(data['RA'][i:i+chunk_size],
-                                       data['DEC'][i:i+chunk_size]))
+            tree = ckdtree.cKDTree(positions[i:i+chunk_size])
 
             #query the lens tree for outer radius
-            pairs2 = lns_chunk.query_ball_tree(tree, r=radii[ri])
+            pairs2 = lns_chunk.query_ball_tree(tree, r=router)
+
+            #add npairs(router)
             pairs += np.sum((len(item) for item in pairs2))
- 
             weight_sum += np.sum(np.sum(weights[int(d)] for d in item) for item in pairs2)
             del pairs2
-            if ri!=0:
+            
+            if rinner>0:
+                
                 #query the lens tree for inner radius
-                pairs1 = lns_chunk.query_ball_tree(tree, r=radii[ri-1])
+                pairs1 = lns_chunk.query_ball_tree(tree, r=rinner)
                 del tree
 
-                pairs -= np.sum((len(item) for item in pairs1))
-#                sys.stderr.write('    pairs = {}\n'.format(pairs))
+                #subtract npairs(rinner)
+                pairs      -= np.sum((len(item) for item in pairs1))
                 weight_sum -= np.sum(np.sum(weights[int(d)] for d in item) for item in pairs1)
                 del pairs1
-#(chunk_indices[int(j)] \
- #                          for j in np.hstack(list(set(i2)-set(i1)) \
- #                                             for i1,i2 in itertools.izip(pairs1, pairs2)))
-#                weight_sum += np.sum((weights[int(d)] for d in indices))
-
-#            else:
-                #if this is smallest radius, use all within "outer"
-                #save sum of weights for pairs found in this chunk
-#                indices = [chunk_indices[int(j)] for j in np.hstack(pairs2)]
-#                weight_sum += np.sum((weights[int(d)] for d in indices))
 
         query_time += time.time() - start_query
         del lns_chunk
@@ -73,49 +75,118 @@ def chunkcount(ri, lns, data, radii, weights):
     return float(pairs), weight_sum
 
 def chunkwrapper(args):
+    #wrapper function for multiprocessing
     return chunkcount(*args)
 
 def countpairs(src, lns, rnd, radii, rndtype='lens',
                srcweights=None, rndweights=None,
                numthreads=1):
-
-    #radii in increasing order
-    annuli = {}
-    #sources first
-    for ri in range(len(radii)):
-        annuli[radii[ri]] = {}
-        sys.stderr.write('    working on r={} (sources)\n'.format(radii[ri]))
-        
-        #multiprocessing
-        if numthreads == 1:
-            annuli[radii[ri]]['srcpairs'], sum_srcweights =  chunkcount(ri, lns, src.data, radii, srcweights)
-            if srcweights is not None:
-                annuli[radii[ri]]['Psrcsum'] = sum_srcweights            
-
-        else:
-            from multiprocessing import Pool
-            annuli[radii[ri]]['srcpairs'], sum_srcweights = multi(ri, lns, src, srcweights, numthreads)            
-            if srcweights is not None:
-                annuli[radii[ri]]['Psrcsum'] = sum_srcweights
-    del src, srcweights
-
-    #randoms
-    for ri in range(len(radii)):
-        sys.stderr.write('    working on r={} (randoms)\n'.format(radii[ri]))
-        if numthreads == 1:
-            annuli[radii[ri]]['rndpairs'], sum_rndweights =  chunkcount(ri, lns, rnd.data, radii, rndweights)
-            if rndweights is not None:
-                annuli[radii[ri]]['Prndsum'] = sum_rndweights
-        else:
-            from multiprocessing import Pool
-            annuli[radii[ri]]['rndpairs'], sum_rndweights = multi(ri, lns, rnd, rndweights, numthreads)
-            if rndweights is not None:
-                annuli[radii[ri]]['Prndsum'] = sum_rndweights
-    del rnd, rndweights
-    return annuli
+    """
+    Create annuli dictionary and run chunkcount
+    for every inner/outer radius pair
+    """
+    srcpos = zip(src.data['RA'], src.data['DEC'])
+    rndpos = zip(rnd.data['RA'], rnd.data['DEC'])
     
+    if jackknife==True:
+        jkresults = {}
+        
+        #separate d (src) and r (rnd) into SAME kmeans region, by position
+        n_jk = njackknife
+        centers, _ = kmeans(srcpos, n_jk)
+        k_indices, _ = vq(srcpos, centers)
+
+        #count DD and DR for each radius for each sample
+        for k in range(n_jk):
+            #radii in increasing order
+            annuli = {}
+
+            #sources first
+            this_dpos = srcpos[k_indices!=k]
+            this_srcweights = ???
+            annuli = loopradius(annuli, 'Psrcsum', 'srcpairs'
+                                radii, lns, this_dpos, this_srcweights)
+            del this_dpos
+    
+            #again with randoms
+            this_rpos = rndpos[k_indices!=k]
+            annuli = loopradius(annuli, 'Prndsum', 'rndpairs',
+                                radii, lns, this_rpos, rndweights)
+
+            jkresults[k] = {}
+            jkresults[k]['Psrcsum'] = [annuli[rad]['Psrcsum'] for rad in radii]
+            jkresults[k]['Prndsum'] = [annuli[rad]['Prndsum'] for rad in radii]}
+
+            #get w for this sample
+            jkresults[k]['w'] = [w(annuli[rad]['Psrcsum'], annuli[rad]['Psrcsum']) \
+                                 for rad in radii]
+                                 
+        #get jacknife estimate from average of jackknife regions
+        jkresults['w'] = jk([jkresults[k]['Psrcsum'] for k in range(n_jk)],
+                            [jkresults[k]['Prndsum'] for k in range(n_jk)],
+                            w)
+        
+        #get jackknife variance from the results of jackknife regions
+        jkresults['var'] = varjk([jkresults[k]['Psrcsum'] for k in range(n_jk)],
+                                 [jkresults[k]['Prndsum'] for k in range(n_jk)],
+                                 w)
+            
+    #answer with full sample
+    annuli = {}
+
+    #sources first
+    srcpos = zip(src.data['RA'], src.data['DEC'])
+    annuli = loopradius(annuli, 'Psrcsum', 'srcpairs'
+                        radii, lns, srcpos, srcweights)
+    #save space
+    del src, srcpos, srcweights
+
+    #again with randoms
+    rndpos = zip(rnd.data['RA'], rnd.data['DEC'])
+    annuli = loopradius(annuli, 'Prndsum', 'rndpairs',
+                        radii, lns, rndpos, rndweights)
+    del rnd, rndpos, rndweights
+
+    if jackknife==True:
+        return annuli, jkresults
+    else:
+        return annuli
+
+def loopradius(annuli, weightkey, pairkey,
+               radii, lns, positions, weights=None):
+
+    #loop over annuli radii
+    for ri in range(len(radii)):
+        router = radii[ri]
+        if ri==0:
+            rinner = 0.
+        else:
+            rinner = radii[ri-1]
+
+        #create dictionary entry and print radius
+        annuli[router] = {}
+        sys.stderr.write('    working on r={}\n'.format(router))
+        
+        #regular or multiprocessing
+        if numthreads == 1:
+            annuli[router][pairkey], sum_weights =  chunkcount(rinner, router,
+                                                               lns, positions, weights)
+            if weights is not None:
+                annuli[router][weightkey] = sum_weights            
+
+        else:
+            from multiprocessing import Pool
+            annuli[router][pairkey], sum_weights = multi(rinner, router,
+                                                         lns, positionss, weights,
+                                                         numthreads)            
+            if weights is not None:
+                annuli[router][weightkey] = sum_weights
+
+    return annuli
+
 def multi(ri, lns, dataset, weights, numthreads):
-    #multiprocessing
+    
+    #break data into chunks for each multiprocessing thread
     pool = Pool(processes=numthreads)
     n_per_process = int(np.ceil(len(dataset.data) / float(numthreads)))
     thread_chunks = (dataset.data[i:i+n_per_process] \
@@ -123,6 +194,7 @@ def multi(ri, lns, dataset, weights, numthreads):
     weight_thread_chunks = (weights[i:i+n_per_process] \
                             for i in xrange(0, len(weights), n_per_process))
 
+    #save and chain results from each thread
     results = pool.map(chunkwrapper, itertools.izip(itertools.repeat(ri), itertools.repeat(lns),
                                                     thread_chunks, weight_thread_chunks))
     chain_results = np.sum(results, axis=0)
@@ -144,7 +216,7 @@ def mycorr(sources, lenses, randoms, output, radii,
         
     start_q = time.time()
     sys.stderr.write('    Starting queries...\n')
-        
+            
     #for each radius, query for all sources around lenses
     annuli = countpairs(sources, lenses, randoms, radii, rndtype=random_type,
                         srcweights=srcweights, rndweights=rndweights,
@@ -162,6 +234,24 @@ def mycorr(sources, lenses, randoms, output, radii,
     tab = plotnsave(sources, lenses, randoms, annuli, output,
                     random_type, srcweights, rndweights)
     return tab
+
+def w(DD, DR, nd, nr):
+    return (float(nr)/nd) * (float(DD)/DR) - 1.
+
+def jk(DD, DR, func):
+    n = len(DD)
+    nd = np.sum([DD[i] for i in range(len(DD[0]))])
+    nr = np.sum([DR[i] for i in range(len(DR[0]))])
+    return np.sum([func(DD[j], DR[j], nd[j], nr[j]) \
+                   for j in range(n)])/float(n)
+
+def varjk(DD, DR, func):
+    n = len(DD)
+    nd = np.sum([DD[i] for i in range(len(DD[0]))])
+    nr = np.sum([DR[i] for i in range(len(DR[0]))])
+    coeff = (n-1)/float(n)
+    jk_est = jk(DD, DR, func)
+    return coeff * np.sum([(func(DD[j], DR[j], nd[j], nr[j]) - jk_est)**2 for j in range(n)])
 
 def plotnsave(sources, lenses, randoms, annuli, output,
               random_type='lens', srcweights=None, rndweights=None):
@@ -317,4 +407,6 @@ def main(params):
 if __name__=="__main__":
     params = parse.parseconfigs(sys.argv[1])
     main(params)
-    
+
+
+
