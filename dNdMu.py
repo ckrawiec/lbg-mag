@@ -13,7 +13,7 @@ from dataset import DataSet
 
 test = True
 sizes = True
-logs = False
+logs = True
 filters = 'GRIZ'
 gridfile = '/home/ckrawiec/DES/data/balrog_tab01_avg_star_fluxradiusi_0.1deg.fits'
 
