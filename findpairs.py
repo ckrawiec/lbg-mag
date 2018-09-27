@@ -11,9 +11,10 @@ from astropy.io import fits
 from astropy.table import Table
 from dataset import DataSet
 from scipy.cluster.vq import kmeans, vq
+from multiprocessing import Pool
 
-jackknife = True
-njackknife = 5
+jackknife = False
+njackknife = 10
 
 def chunkcount(rinner, router, lns, positions, weights):
     """
@@ -31,7 +32,7 @@ def chunkcount(rinner, router, lns, positions, weights):
         lens_nchunks = 2
 
     #size of each chunk
-    chunk_size = int(np.ceil(float(len(data))/nchunks))
+    chunk_size = int(np.ceil(float(len(positions))/nchunks))
     lens_chunk_size = int(np.ceil(float(len(lns.data))/lens_nchunks))
 
     #loop over lens chunks
@@ -42,7 +43,7 @@ def chunkcount(rinner, router, lns, positions, weights):
                                         lns.data['DEC'][il:il+lens_chunk_size]))
     
         #loop over source chunks
-        for i in xrange(0, len(data), chunk_size):
+        for i in xrange(0, len(positions), chunk_size):
 
             #create tree from positions for this chunk
             chunk_indices = (range(i, i+chunk_size))
@@ -94,7 +95,8 @@ def countpairs(src, lns, rnd, radii, rndtype='lens',
         #separate d (src) and r (rnd) into SAME kmeans region, by position
         n_jk = njackknife
         centers, _ = kmeans(srcpos, n_jk)
-        k_indices, _ = vq(srcpos, centers)
+        src_k_indices, _ = vq(srcpos, centers)
+        rnd_k_indices, _ = vq(rndpos, centers)
 
         #count DD and DR for each radius for each sample
         for k in range(n_jk):
@@ -102,25 +104,32 @@ def countpairs(src, lns, rnd, radii, rndtype='lens',
             annuli = {}
 
             #sources first
-            this_dpos = srcpos[k_indices!=k]
-            this_srcweights = srcweights[k_indices!=k]
+            src_k_mask = (src_k_indices!=k)
+            this_dpos = np.array(srcpos)[src_k_mask]
+            this_srcweights = np.array(srcweights)[src_k_mask]
             annuli = loopradius(annuli, 'Psrcsum', 'srcpairs',
-                                radii, lns, this_dpos, this_srcweights)
+                                radii, lns, this_dpos, this_srcweights,
+                                numthreads)
             del this_dpos
     
             #again with randoms
-            this_rpos = rndpos[k_indices!=k]
-            this_rndweights = rndweights[k_indices!=k]
+            rnd_k_mask = (rnd_k_indices!=k)
+            this_rpos = np.array(rndpos)[rnd_k_mask]
+            this_rndweights = np.array(rndweights)[rnd_k_mask]
             annuli = loopradius(annuli, 'Prndsum', 'rndpairs',
-                                radii, lns, this_rpos, this_rndweights)
+                                radii, lns, this_rpos, this_rndweights,
+                                numthreads)
 
             jkresults[k] = {}
             jkresults[k]['Psrcsum'] = [annuli[rad]['Psrcsum'] for rad in radii]
             jkresults[k]['Prndsum'] = [annuli[rad]['Prndsum'] for rad in radii]
 
             #get w for this sample
-            jkresults[k]['w'] = [w(annuli[rad]['Psrcsum'], annuli[rad]['Psrcsum']) \
-                                 for rad in radii]
+            tot_src = np.sum([annuli[m]['Psrcsum'] for m in annuli.keys()])
+            tot_rnd = np.sum([annuli[m]['Prndsum'] for m in annuli.keys()])
+            jkresults[k]['w'] = w([annuli[rad]['Psrcsum'] for rad in radii],
+                                  [annuli[rad]['Psrcsum'] for rad in radii], 
+                                  tot_src, tot_rnd)
                                  
         #get jacknife estimate from average of jackknife regions
         jkresults['w'] = jk([jkresults[k]['Psrcsum'] for k in range(n_jk)],
@@ -138,14 +147,16 @@ def countpairs(src, lns, rnd, radii, rndtype='lens',
     #sources first
     srcpos = zip(src.data['RA'], src.data['DEC'])
     annuli = loopradius(annuli, 'Psrcsum', 'srcpairs',
-                        radii, lns, srcpos, srcweights)
+                        radii, lns, srcpos, srcweights,
+                        numthreads)
     #save space
     del src, srcpos, srcweights
 
     #again with randoms
     rndpos = zip(rnd.data['RA'], rnd.data['DEC'])
     annuli = loopradius(annuli, 'Prndsum', 'rndpairs',
-                        radii, lns, rndpos, rndweights)
+                        radii, lns, rndpos, rndweights,
+                        numthreads)
     del rnd, rndpos, rndweights
 
     if jackknife==True:
@@ -154,7 +165,8 @@ def countpairs(src, lns, rnd, radii, rndtype='lens',
         return annuli
 
 def loopradius(annuli, weightkey, pairkey,
-               radii, lns, positions, weights=None):
+               radii, lns, positions, weights=None,
+               numthreads=1):
 
     #loop over annuli radii
     for ri in range(len(radii)):
@@ -165,7 +177,8 @@ def loopradius(annuli, weightkey, pairkey,
             rinner = radii[ri-1]
 
         #create dictionary entry and print radius
-        annuli[router] = {}
+        if router not in annuli.keys():
+            annuli[router] = {}
         sys.stderr.write('    working on r={}\n'.format(router))
         
         #regular or multiprocessing
@@ -176,27 +189,27 @@ def loopradius(annuli, weightkey, pairkey,
                 annuli[router][weightkey] = sum_weights            
 
         else:
-            from multiprocessing import Pool
             annuli[router][pairkey], sum_weights = multi(rinner, router,
-                                                         lns, positionss, weights,
+                                                         lns, positions, weights,
                                                          numthreads)            
             if weights is not None:
                 annuli[router][weightkey] = sum_weights
 
     return annuli
 
-def multi(ri, lns, dataset, weights, numthreads):
+def multi(rinner, router, lns, dataset, weights, numthreads):
     
     #break data into chunks for each multiprocessing thread
     pool = Pool(processes=numthreads)
-    n_per_process = int(np.ceil(len(dataset.data) / float(numthreads)))
-    thread_chunks = (dataset.data[i:i+n_per_process] \
-                     for i in xrange(0, len(dataset.data), n_per_process))
+    n_per_process = int(np.ceil(len(dataset) / float(numthreads)))
+    thread_chunks = (dataset[i:i+n_per_process] \
+                     for i in xrange(0, len(dataset), n_per_process))
     weight_thread_chunks = (weights[i:i+n_per_process] \
                             for i in xrange(0, len(weights), n_per_process))
 
     #save and chain results from each thread
-    results = pool.map(chunkwrapper, itertools.izip(itertools.repeat(ri), itertools.repeat(lns),
+    results = pool.map(chunkwrapper, itertools.izip(itertools.repeat(rinner), itertools.repeat(router),
+                                                    itertools.repeat(lns),
                                                     thread_chunks, weight_thread_chunks))
     chain_results = np.sum(results, axis=0)
     return chain_results
@@ -219,9 +232,15 @@ def mycorr(sources, lenses, randoms, output, radii,
     sys.stderr.write('    Starting queries...\n')
             
     #for each radius, query for all sources around lenses
-    annuli = countpairs(sources, lenses, randoms, radii, rndtype=random_type,
+    pairs_results = countpairs(sources, lenses, randoms, radii, rndtype=random_type,
                         srcweights=srcweights, rndweights=rndweights,
                         numthreads=numthreads)
+
+    if jackknife==True:
+        annuli, jkresults = pairs_results
+    else:
+        annuli = pairs_results
+
     sys.stderr.write('    Done.\n')
     end_q = time.time()
         
@@ -234,22 +253,27 @@ def mycorr(sources, lenses, randoms, output, radii,
                                                        random_type)
     tab = plotnsave(sources, lenses, randoms, annuli, output,
                     random_type, srcweights, rndweights)
+    
+    if jackknife==True:
+        for key in jkresults.keys():
+            tab['jk'+str(key)] = jkresults[key]
+
     return tab
 
 def w(DD, DR, nd, nr):
-    return (float(nr)/nd) * (float(DD)/DR) - 1.
+    return (float(nr)/nd) * (np.array(DD)/np.array(DR)) - 1.
 
 def jk(DD, DR, func):
     n = len(DD)
-    nd = np.sum([DD[i] for i in range(len(DD[0]))])
-    nr = np.sum([DR[i] for i in range(len(DR[0]))])
+    nd = [np.sum(DD[i]) for i in range(n)]
+    nr = [np.sum(DR[i]) for i in range(n)]
     return np.sum([func(DD[j], DR[j], nd[j], nr[j]) \
                    for j in range(n)])/float(n)
 
 def varjk(DD, DR, func):
     n = len(DD)
-    nd = np.sum([DD[i] for i in range(len(DD[0]))])
-    nr = np.sum([DR[i] for i in range(len(DR[0]))])
+    nd = [np.sum(DD[i]) for i in range(n)]
+    nr = [np.sum(DR[i]) for i in range(n)]
     coeff = (n-1)/float(n)
     jk_est = jk(DD, DR, func)
     return coeff * np.sum([(func(DD[j], DR[j], nd[j], nr[j]) - jk_est)**2 for j in range(n)])
@@ -392,7 +416,7 @@ def main(params):
     r_min = params['r_min']
     r_max = params['r_max']
     r_bins = params['r_bins']
-    radii = np.logspace(np.log10(r_min), np.log10(r_max), r_bins)
+    radii = np.array([0.001]+list(np.logspace(np.log10(r_min), np.log10(r_max), r_bins)))
 
     corrtab = mycorr(sources, lenses, randoms, params['output'], radii,
                      random_type=params['random_type'],

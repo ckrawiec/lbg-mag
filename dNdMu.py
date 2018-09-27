@@ -280,7 +280,7 @@ def main(args):
         #save numbers of detections
         original_detections, magnified_detections = 0, 0
         detections[str(params['redshifts'][m])] = {}
-        for tabnum in tabnums:
+        for tabnum in np.sort(tabnums)[:-2]:
             #open sim catalog
             sim = fits.open(params['balrog_sim_file_format'].format(tabnum))[1].data
     

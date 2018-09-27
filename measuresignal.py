@@ -25,8 +25,6 @@ def assignbalrog(params, tabnums):
     for tabnum in tabnums:
         #save table number
         balrog_file = params['balrog_sim_file_format'].format(tabnum)
-        itab = balrog_file.find('tab')
-        tabnum = balrog_file[itab+3:itab+5]
 
         #gather zprob fies for this table
         balrog_zp_files = params['balrog_zp_files'].format(tabnum)
@@ -151,6 +149,10 @@ def main(config):
             nn = Table.read(corr_output)
 
         print nn
+
+        for col in nn.colnames:
+            if 'jk' in col:
+                output_table['jk_'+str(objtype)] = nn[col]
         n_vec.append(nn['DD'])
         sys.stderr.write('Done.\n')
 
